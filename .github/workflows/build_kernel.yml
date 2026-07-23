@@ -44,7 +44,7 @@ jobs:
           echo "BUILD_LOG=$GITHUB_WORKSPACE/build.log" >> $GITHUB_ENV
           echo "KERNEL_SRC=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
-                  # ──────────────────────────────────────────
+      # ──────────────────────────────────────────
       # 3. Install Build Dependencies
       # ──────────────────────────────────────────
       - name: Install Build Dependencies
@@ -83,6 +83,7 @@ jobs:
             python-is-python3 \
             libelf-dev \
             python3-setuptools
+
       # ──────────────────────────────────────────
       # 4. Download & extract toolchains
       # ──────────────────────────────────────────
@@ -109,7 +110,7 @@ jobs:
             https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
             /home/runner/toolchains/gcc-arm
 
-            # ──────────────────────────────────────────
+      # ──────────────────────────────────────────
       # 5. AnyKernel3 setup
       # ──────────────────────────────────────────
       - name: Clone AnyKernel3
@@ -142,7 +143,7 @@ patch_vbmeta_flag=auto;
 . tools/ak3-core.sh
 AKEOF
 
-            # ──────────────────────────────────────────
+      # ──────────────────────────────────────────
       # 6. Apply FogOS Gaming Kernel Configs
       # ──────────────────────────────────────────
       - name: Apply FogOS Gaming Kernel Config
@@ -172,41 +173,37 @@ AKEOF
             LOCALVERSION=-fogos \
             $DEFCONFIG 2>&1 | tee $BUILD_LOG
 
-
           # ── Apply FogOS gaming optimizations ──
           cat >> $OUT_DIR/.config << 'FOGOS_CFG'
+CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_SCHED_BOOST=y
+CONFIG_SCHED_WALT=y
+CONFIG_INPUT_BOOST=y
+CONFIG_CPU_INPUT_BOOST=y
+CONFIG_MSM_PERFORMANCE=y
 
-          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          CONFIG_SCHED_BOOST=y
-          CONFIG_SCHED_WALT=y
-          CONFIG_INPUT_BOOST=y
-          CONFIG_CPU_INPUT_BOOST=y
-          CONFIG_MSM_PERFORMANCE=y
+CONFIG_QCOM_KGSL=y
+CONFIG_ADRENO_IDLER=y
 
-          CONFIG_QCOM_KGSL=y
-          CONFIG_ADRENO_IDLER=y
+CONFIG_ZRAM=y
+CONFIG_ZSMALLOC=y
+CONFIG_ZRAM_DEF_COMP_ZSTD=y
 
-          CONFIG_ZRAM=y
-          CONFIG_ZSMALLOC=y
-          CONFIG_ZRAM_DEF_COMP_ZSTD=y
+CONFIG_IOSCHED_CFQ=y
+CONFIG_IOSCHED_DEADLINE=y
 
-          CONFIG_IOSCHED_CFQ=y
-          CONFIG_IOSCHED_DEADLINE=y
+CONFIG_TCP_CONG_ADVANCED=y
+CONFIG_TCP_CONG_BBR=y
+CONFIG_DEFAULT_TCP_CONG="bbr"
 
-          CONFIG_TCP_CONG_ADVANCED=y
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_DEFAULT_TCP_CONG="bbr"
+CONFIG_HZ_300=y
+CONFIG_PREEMPT=y
+CONFIG_HIGH_RES_TIMERS=y
 
-          CONFIG_HZ_300=y
-          CONFIG_PREEMPT=y
-          CONFIG_HIGH_RES_TIMERS=y
-
-          CONFIG_SECURITY_SELINUX=y
-
-          FOGOS_CFG
-
+CONFIG_SECURITY_SELINUX=y
+FOGOS_CFG
 
           # ── Sync config ──
           make -j$(nproc) \
@@ -224,7 +221,6 @@ AKEOF
             CROSS_COMPILE_ARM32=arm-linux-androideabi- \
             LOCALVERSION=-fogos \
             olddefconfig 2>&1 | tee -a $BUILD_LOG
-
 
       # ──────────────────────────────────────────
       # 7. BUILD THE KERNEL
@@ -254,6 +250,7 @@ AKEOF
             Image.gz dtbs modules 2>&1 | tee -a $BUILD_LOG
 
           echo "=== Build step complete ===" | tee -a $BUILD_LOG
+
       # ──────────────────────────────────────────
       # 8. Verify image (fixed — also check Image)
       # ──────────────────────────────────────────
@@ -310,10 +307,9 @@ AKEOF
           echo "✅ Package created: $ZIP_NAME.zip"
           ls -lh $ZIP_DIR/
 
-            # ──────────────────────────────────────────
+      # ──────────────────────────────────────────
       # 10. Upload artifacts
       # ──────────────────────────────────────────
-
       - name: Upload Kernel ZIP
         uses: actions/upload-artifact@v4
         with:
