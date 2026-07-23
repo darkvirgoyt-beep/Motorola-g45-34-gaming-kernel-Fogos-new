@@ -1,173 +1,336 @@
-name: VirgoYT Gaming Kernel Build
+name: FogOS Extreme Gaming Kernel
+
 on:
   push:
-    branches: ['**']
+    branches: [ main ]
   workflow_dispatch:
-    inputs:
-      release:
-        description: 'Create Release?'
-        default: 'false'
-        type: choice
-        options: ['true','false']
-env:
-  KERNEL_NAME: "FogOS-Extreme-Gaming"
-  KERNEL_VERSION: "v2.0"
-  DEVICE: "Holi"
-  ARCH: arm64
-  SUBARCH: arm64
-  CLANG_URL: "https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20240601-release/Clang-20.0.0git-20240601.tar.gz"
+
 jobs:
   build:
-    name: Build Kernel
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
+    runs-on: ubuntu-latest
+    
+    env:
+      KERNEL_NAME: FogOS-Extreme-Gaming
+      KERNEL_VERSION: v2.0
+      DEVICE: Holi
+      ARCH: arm64
+      SUBARCH: arm64
+      # ZyCromer Clang 20 — compatible with 5.4 GKI
+      CLANG_URL: https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20240601-release/Clang-20.0.0git-20240601.tar.gz
+      CLANG_PATH: /home/runner/toolchains/clang/bin
+      GCC_PATH: /home/runner/toolchains/gcc-aarch64/bin
+      GCC32_PATH: /home/runner/toolchains/gcc-arm/bin
+
     steps:
-      - name: Checkout source
+      # ──────────────────────────────────────────
+      # 1. Checkout kernel source
+      # ──────────────────────────────────────────
+      - name: Checkout Kernel Source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Install dependencies
+      # ──────────────────────────────────────────
+      # 2. Set dynamic env vars
+      # ──────────────────────────────────────────
+      - name: Set Build Variables
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y bc bison build-essential ccache curl flex \
-            g++-multilib gcc-multilib git libncurses5-dev libssl-dev \
-            libxml2-utils lzop zip zlib1g-dev python3 python-is-python3 lz4
-
-      - name: Setup ccache
-        uses: actions/cache@v4
-        with:
-          path: ~/.ccache
-          key: ccache-fogos-${{ github.sha }}
-          restore-keys: ccache-fogos-
-
-      - name: Download Clang toolchain
-        run: |
-          mkdir -p $HOME/toolchains/clang
-          if curl -fL "${{ env.CLANG_URL }}" -o /tmp/clang.tar.gz 2>/dev/null; then
-            tar -xf /tmp/clang.tar.gz -C $HOME/toolchains/clang --strip-components=1
-          else
-            sudo apt-get install -y clang lld llvm
-            mkdir -p $HOME/toolchains/clang/bin
-            for T in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
-              ln -sf $(which $T) $HOME/toolchains/clang/bin/$T 2>/dev/null || true
-            done
-          fi
-          echo "CLANG_PATH=$HOME/toolchains/clang/bin" >> $GITHUB_ENV
-
-      - name: Download GCC
-        run: |
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $HOME/toolchains/gcc-aarch64 || true
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $HOME/toolchains/gcc-arm || true
-          echo "GCC_PATH=$HOME/toolchains/gcc-aarch64/bin" >> $GITHUB_ENV
-          echo "GCC32_PATH=$HOME/toolchains/gcc-arm/bin" >> $GITHUB_ENV
-
-      - name: Set build metadata
-        run: |
-          DATE=$(date +%Y%m%d)
-          ZIP_NAME="${{ env.KERNEL_NAME }}-${{ env.KERNEL_VERSION }}-${{ env.DEVICE }}-${DATE}"
-          echo "DATE=$DATE" >> $GITHUB_ENV
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
+          echo "ZIP_NAME=FogOS-Extreme-Gaming-${{ env.KERNEL_VERSION }}-${{ env.DEVICE }}-$(date +%Y%m%d)" >> $GITHUB_ENV
           echo "OUT_DIR=$GITHUB_WORKSPACE/out" >> $GITHUB_ENV
           echo "ZIP_DIR=$GITHUB_WORKSPACE/release" >> $GITHUB_ENV
+          echo "BUILD_LOG=$GITHUB_WORKSPACE/build.log" >> $GITHUB_ENV
+          echo "KERNEL_SRC=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
-      - name: Generate defconfig
+      # ──────────────────────────────────────────
+      # 3. Install dependencies
+      # ──────────────────────────────────────────
+      - name: Install Build Dependencies
         run: |
-          CLANG=${{ env.CLANG_PATH }}
-          GCC=${{ env.GCC_PATH }}
-          GCC32=${{ env.GCC32_PATH }}
-          mkdir -p ${{ env.OUT_DIR }}
-          make O=${{ env.OUT_DIR }} ARCH=arm64 CC=${CLANG}/clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=${GCC}/aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=${GCC32}/arm-linux-androideabi- \
-            LD=${CLANG}/ld.lld AR=${CLANG}/llvm-ar NM=${CLANG}/llvm-nm \
-            OBJCOPY=${CLANG}/llvm-objcopy OBJDUMP=${CLANG}/llvm-objdump \
-            STRIP=${CLANG}/llvm-strip -j$(nproc) \
-            vendor/holi-qgki_defconfig
-          scripts/kconfig/merge_config.sh -m -O ${{ env.OUT_DIR }} \
-            ${{ env.OUT_DIR }}/.config \
-            arch/arm64/configs/vendor/fogos_gaming.config
-          make O=${{ env.OUT_DIR }} ARCH=arm64 CC=${CLANG}/clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=${GCC}/aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=${GCC32}/arm-linux-androideabi- \
-            LD=${CLANG}/ld.lld AR=${CLANG}/llvm-ar NM=${CLANG}/llvm-nm \
-            OBJCOPY=${CLANG}/llvm-objcopy OBJDUMP=${CLANG}/llvm-objdump \
-            STRIP=${CLANG}/llvm-strip -j$(nproc) olddefconfig
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y \
+            bc bison build-essential ccache curl flex g++ \
+            gcc git gnupg gperf imagemagick lib32ncurses5-dev \
+            lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev \
+            libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop \
+            pngcrush rsync schedtool squashfs-tools xsltproc zip \
+            zlib1g-dev python3 python2 python-is-python3 libelf-dev \
+            python3-setuptools
 
-      - name: Build kernel
+      # ──────────────────────────────────────────
+      # 4. Download & extract toolchains
+      # ──────────────────────────────────────────
+      - name: Setup Clang Toolchain
         run: |
-          CLANG=${{ env.CLANG_PATH }}
-          GCC=${{ env.GCC_PATH }}
-          GCC32=${{ env.GCC32_PATH }}
-          make O=${{ env.OUT_DIR }} ARCH=arm64 CC=${CLANG}/clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=${GCC}/aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=${GCC32}/arm-linux-androideabi- \
-            LD=${CLANG}/ld.lld AR=${CLANG}/llvm-ar NM=${CLANG}/llvm-nm \
-            OBJCOPY=${CLANG}/llvm-objcopy OBJDUMP=${CLANG}/llvm-objdump \
-            STRIP=${CLANG}/llvm-strip \
-            LOCALVERSION="-FogOS-Extreme-Gaming-v2.0" \
-            -j$(nproc) Image.gz-dtb dtbs 2>&1 | tee build.log
+          mkdir -p /home/runner/toolchains/clang
+          wget -q "${{ env.CLANG_URL }}" -O clang.tar.gz
+          tar -xzf clang.tar.gz -C /home/runner/toolchains/clang --strip-components=1
+          rm clang.tar.gz
+          echo "Clang version:"
+          ${{ env.CLANG_PATH }}/clang --version
 
-      - name: Verify image
+      - name: Setup GCC Toolchains
         run: |
-          BOOT=${{ env.OUT_DIR }}/arch/arm64/boot
+          # aarch64 GCC
+          mkdir -p /home/runner/toolchains/gcc-aarch64
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 \
+            /home/runner/toolchains/gcc-aarch64
+
+          # arm32 GCC
+          mkdir -p /home/runner/toolchains/gcc-arm
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
+            /home/runner/toolchains/gcc-arm
+
+      # ──────────────────────────────────────────
+      # 5. AnyKernel3 setup
+      # ──────────────────────────────────────────
+      - name: Clone AnyKernel3
+        run: |
+          git clone --depth=1 \
+            https://github.com/osm0sis/AnyKernel3 \
+            $GITHUB_WORKSPACE/AnyKernel3
+          # Customize for Holi
+          cat > $GITHUB_WORKSPACE/AnyKernel3/anykernel.sh << 'AKEOF'
+          # AnyKernel3 — FogOS Extreme Gaming Kernel
+          properties() { '
+          kernel.string=FogOS Extreme Gaming Kernel by VirgoYT707
+          do.devicecheck=1
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=holi
+          device.name2=Cyprus
+          device.name3=motorola
+          supported.versions=12-16
+          '; }
+          block=/dev/block/bootdevice/by-name/boot;
+          is_slot_device=1;
+          ramdisk_compression=auto;
+          patch_vbmeta_flag=auto;
+          . tools/ak3-core.sh
+          . split_img
+          . flash_generic
+          AKEOF
+
+      # ──────────────────────────────────────────
+      # 6. Apply FogOS Gaming Kernel Configs
+      # ──────────────────────────────────────────
+      - name: Apply FogOS Gaming Kernel Config
+        run: |
+          cd $KERNEL_SRC
+          export PATH="${{ env.CLANG_PATH }}:${{ env.GCC_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          
+          mkdir -p $OUT_DIR
+
+          # ── Base defconfig ──
+          # Change "vendor/holi-qgki_defconfig" to your actual defconfig name
+          DEFCONFIG="vendor/holi-qgki_defconfig"
+          
+          make -j$(nproc) \
+            O=$OUT_DIR \
+            ARCH=${{ env.ARCH }} \
+            SUBARCH=${{ env.SUBARCH }} \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            $DEFCONFIG 2>&1 | tee $BUILD_LOG
+          
+          # ── Apply FogOS gaming optimizations via config fragments ──
+          cat >> $OUT_DIR/.config << 'FOGOS_CFG'
+          
+          # ── CPU Performance ──
+          CONFIG_CPU_FREQ_GOV_PERFORMANCE=y
+          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+          CONFIG_SCHED_BOOST=y
+          CONFIG_SCHED_WALT=y
+          CONFIG_INPUT_BOOST=y
+          CONFIG_CPU_INPUT_BOOST=y
+          CONFIG_SCHED_DYNAMIC_REFRESH_RATE=y
+          CONFIG_MSM_PERFORMANCE=y
+          
+          # ── GPU ──
+          CONFIG_QCOM_KGSL=y
+          CONFIG_ADRENO_IDLER=y
+          CONFIG_DEVFREQ_GOV_SIMPLE_ONDEMAND=y
+          
+          # ── Memory ──
+          CONFIG_ZRAM=y
+          CONFIG_ZSMALLOC=y
+          CONFIG_ZRAM_DEF_COMP_ZSTD=y
+          CONFIG_TRANSPARENT_HUGEPAGE=y
+          CONFIG_CMA=y
+          CONFIG_SLUB=y
+          # Disable KSM (latency) — keep for RAM saving if needed
+          # CONFIG_KSM is not set
+          
+          # ── I/O ──
+          CONFIG_IOSCHED_CFQ=y
+          CONFIG_IOSCHED_DEADLINE=y
+          CONFIG_DEFAULT_IOSCHED="deadline"
+          CONFIG_BLK_DEV_ZONED=y
+          
+          # ── Network / TCP ──
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_DEFAULT_TCP_CONG="bbr"
+          CONFIG_NET_SCH_FQ=y
+          CONFIG_NET_SCH_FQ_CODEL=y
+          CONFIG_NET_SCH_DEFAULT=y
+          CONFIG_DEFAULT_FQ=y
+          
+          # ── Scheduler / Latency ──
+          CONFIG_HZ_300=y
+          CONFIG_PREEMPT=y
+          CONFIG_NO_HZ_IDLE=y
+          CONFIG_HIGH_RES_TIMERS=y
+          CONFIG_HRTIMER_RESOLUTION=y
+          
+          # ── Logging (reduce overhead) ──
+          # CONFIG_DEBUG_KERNEL is not set
+          # CONFIG_DEBUG_INFO is not set
+          # CONFIG_TRACING is not set
+          CONFIG_PRINTK_TIME=y
+          # CONFIG_FTRACE is not set
+          
+          # ── Security (keep compatible) ──
+          CONFIG_SECURITY_SELINUX=y
+          CONFIG_SECURITY_SELINUX_BOOTPARAM=y
+          CONFIG_SECURITY_SELINUX_DEVELOP=y
+          
+          FOGOS_CFG
+          
+          # Sync config (apply the fragment overrides properly)
+          make -j$(nproc) \
+            O=$OUT_DIR \
+            ARCH=${{ env.ARCH }} \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            olddefconfig 2>&1 | tee -a $BUILD_LOG
+
+      # ──────────────────────────────────────────
+      # 7. BUILD THE KERNEL ← THIS IS THE KEY FIX
+      # ──────────────────────────────────────────
+      - name: Build Kernel Image
+        run: |
+          cd $KERNEL_SRC
+          export PATH="${{ env.CLANG_PATH }}:${{ env.GCC_PATH }}:${{ env.GCC32_PATH }}:$PATH"
+          
+          echo "=== Starting FogOS kernel compilation ===" | tee -a $BUILD_LOG
+          echo "Clang: $(clang --version | head -1)" | tee -a $BUILD_LOG
+          echo "Jobs: $(nproc)" | tee -a $BUILD_LOG
+          
+          # ─────────────────────────────────────────────────────
+          # THE ACTUAL KERNEL BUILD COMMAND
+          # Explicitly targets Image.gz + dtbs
+          # ─────────────────────────────────────────────────────
+          make -j$(nproc) \
+            O=$OUT_DIR \
+            ARCH=${{ env.ARCH }} \
+            SUBARCH=${{ env.SUBARCH }} \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            Image.gz dtbs modules 2>&1 | tee -a $BUILD_LOG
+          
+          echo "=== Build step complete ===" | tee -a $BUILD_LOG
+
+      # ──────────────────────────────────────────
+      # 8. Verify image (fixed — also check Image)
+      # ──────────────────────────────────────────
+      - name: Verify Image
+        run: |
+          BOOT=$OUT_DIR/arch/arm64/boot
+          echo "Checking in: $BOOT"
+          ls -la $BOOT/ 2>/dev/null || echo "BOOT dir missing!"
+          
           if [ -f "$BOOT/Image.gz-dtb" ]; then
             echo "KERNEL_IMAGE=$BOOT/Image.gz-dtb" >> $GITHUB_ENV
+            echo "✅ Found: Image.gz-dtb"
           elif [ -f "$BOOT/Image.gz" ]; then
             echo "KERNEL_IMAGE=$BOOT/Image.gz" >> $GITHUB_ENV
+            echo "✅ Found: Image.gz"
+          elif [ -f "$BOOT/Image" ]; then
+            echo "KERNEL_IMAGE=$BOOT/Image" >> $GITHUB_ENV
+            echo "✅ Found: Image (uncompressed)"
           else
-            echo "Build failed - no image found"
-            tail -80 build.log
+            echo "❌ Build failed - no image found"
+            echo "=== Last 100 lines of build.log ==="
+            tail -100 $BUILD_LOG
             exit 1
           fi
 
-      - name: Package ZIP
+      # ──────────────────────────────────────────
+      # 9. Package AnyKernel3 ZIP
+      # ──────────────────────────────────────────
+      - name: Package AnyKernel3 ZIP
         run: |
-          mkdir -p ${{ env.ZIP_DIR }}
-          cp "${{ env.KERNEL_IMAGE }}" anykernel3/Image.gz-dtb 2>/dev/null || \
-          cp "${{ env.KERNEL_IMAGE }}" anykernel3/Image.gz
-          DTBO="${{ env.OUT_DIR }}/arch/arm64/boot/dtbo.img"
-          [ -f "$DTBO" ] && cp "$DTBO" anykernel3/dtbo.img
-          mkdir -p anykernel3/system/etc/init.d
-          cp anykernel3/fogos_gaming_init.sh anykernel3/system/etc/init.d/99-fogos-gaming
-          chmod 755 anykernel3/system/etc/init.d/99-fogos-gaming
-          cd anykernel3
-          zip -r9 "${{ env.ZIP_DIR }}/${{ env.ZIP_NAME }}.zip" . \
-            --exclude="*.git*" --exclude="fogos_gaming_init.sh"
-          cd ..
+          mkdir -p $ZIP_DIR
+          
+          # Copy kernel image
+          cp $KERNEL_IMAGE $GITHUB_WORKSPACE/AnyKernel3/
+          
+          # Copy DTBs if available
+          DTBO="$OUT_DIR/arch/arm64/boot/dtbo.img"
+          DTB_DIR="$OUT_DIR/arch/arm64/boot/dts"
+          
+          if [ -f "$DTBO" ]; then
+            cp $DTBO $GITHUB_WORKSPACE/AnyKernel3/
+          fi
+          
+          if [ -d "$DTB_DIR" ]; then
+            find $DTB_DIR -name "*.dtb" -exec cat {} + > $GITHUB_WORKSPACE/AnyKernel3/dtb
+          fi
+          
+          # Create flashable ZIP
+          cd $GITHUB_WORKSPACE/AnyKernel3
+          zip -r9 "$ZIP_DIR/$ZIP_NAME.zip" . \
+            --exclude=".git" \
+            --exclude="*.md"
+          
+          echo "✅ Package created: $ZIP_NAME.zip"
+          ls -lh $ZIP_DIR/
 
-      - name: Upload ZIP
+      # ──────────────────────────────────────────
+      # 10. Upload artifacts
+      # ──────────────────────────────────────────
+      - name: Upload Kernel ZIP
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ZIP_NAME }}
-          path: ${{ env.ZIP_DIR }}/${{ env.ZIP_NAME }}.zip
+          path: ${{ env.ZIP_DIR }}/*.zip
           retention-days: 30
-          if-no-files-found: error
 
-      - name: Upload build log
+      - name: Upload Build Log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build-log
-          path: build.log
+          name: build-log-${{ env.DATE }}
+          path: ${{ env.BUILD_LOG }}
           retention-days: 7
-
-      - name: Create Release
-        if: github.event.inputs.release == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: FogOS-${{ env.KERNEL_VERSION }}-${{ env.DATE }}
-          name: "VirgoYT Gaming Kernel FogOS ${{ env.KERNEL_VERSION }} - ${{ env.DATE }}"
-          body: |
-            ## VirgoYT Gaming Kernel - FogOS Extreme Gaming
-            Developer: Prince (VirgoYT707)
-            Device: Motorola G45/G34 (SM6375/Holi)
-            Base: Linux 5.4.302
-
-            Flash via TWRP. See FLASHING_GUIDE.md for full instructions.
-          files: ${{ env.ZIP_DIR }}/${{ env.ZIP_NAME }}.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OKEN: ${{ secrets.GITHUB_TOKEN }}
