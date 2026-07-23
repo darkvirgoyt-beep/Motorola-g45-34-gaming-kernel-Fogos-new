@@ -44,7 +44,7 @@ jobs:
           echo "BUILD_LOG=$GITHUB_WORKSPACE/build.log" >> $GITHUB_ENV
           echo "KERNEL_SRC=$GITHUB_WORKSPACE" >> $GITHUB_ENV
 
-            # ──────────────────────────────────────────
+                  # ──────────────────────────────────────────
       # 3. Install Build Dependencies
       # ──────────────────────────────────────────
       - name: Install Build Dependencies
@@ -68,8 +68,6 @@ jobs:
             lib32z1-dev \
             liblz4-tool \
             libncurses-dev \
-            libncurses5-dev \
-            libsdl1.2-dev \
             libssl-dev \
             libxml2 \
             libxml2-utils \
@@ -111,7 +109,7 @@ jobs:
             https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 \
             /home/runner/toolchains/gcc-arm
 
-      # ──────────────────────────────────────────
+            # ──────────────────────────────────────────
       # 5. AnyKernel3 setup
       # ──────────────────────────────────────────
       - name: Clone AnyKernel3
@@ -119,29 +117,30 @@ jobs:
           git clone --depth=1 \
             https://github.com/osm0sis/AnyKernel3 \
             $GITHUB_WORKSPACE/AnyKernel3
-          # Customize for Holi
+
           cat > $GITHUB_WORKSPACE/AnyKernel3/anykernel.sh << 'AKEOF'
-          # AnyKernel3 — FogOS Extreme Gaming Kernel
-          properties() { '
-          kernel.string=FogOS Extreme Gaming Kernel by VirgoYT707
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=holi
-          device.name2=Cyprus
-          device.name3=motorola
-          supported.versions=12-16
-          '; }
-          block=/dev/block/bootdevice/by-name/boot;
-          is_slot_device=1;
-          ramdisk_compression=auto;
-          patch_vbmeta_flag=auto;
-          . tools/ak3-core.sh
-          . split_img
-          . flash_generic
-          AKEOF
+# AnyKernel3 — FogOS Extreme Gaming Kernel
+
+properties() { '
+kernel.string=FogOS Extreme Gaming Kernel by VirgoYT707
+do.devicecheck=1
+do.modules=0
+do.systemless=1
+do.cleanup=1
+do.cleanuponabort=0
+device.name1=holi
+device.name2=cyprus
+device.name3=motorola
+supported.versions=12-16
+'; }
+
+block=/dev/block/bootdevice/by-name/boot;
+is_slot_device=1;
+ramdisk_compression=auto;
+patch_vbmeta_flag=auto;
+
+. tools/ak3-core.sh
+AKEOF
 
             # ──────────────────────────────────────────
       # 6. Apply FogOS Gaming Kernel Configs
