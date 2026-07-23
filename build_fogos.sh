@@ -20,7 +20,7 @@
 #   ./build_fogos.sh --bootimg /path/to/stock_boot.img  # Build boot.img too
 ###############################################################################
 
-set -e
+set -eo pipefail
 
 ###############################################################################
 # CONFIGURATION
@@ -44,6 +44,7 @@ CLANG_TRIPLE="aarch64-linux-gnu-"
 # Defconfig — full pre-tuned gaming defconfig
 DEFCONFIG="vendor/fogos_defconfig"
 GAMING_FRAGMENT="${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_gaming.config"
+GAMING_EXTREME_FRAGMENT="${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_gaming_extreme.config"
 
 # Branding
 KERNEL_VERSION="FogOS-Extreme-Gaming-v2.0-Ultra"
@@ -186,6 +187,14 @@ build_kernel() {
         log_info "Merging gaming fragment: fogos_gaming.config"
         ./scripts/kconfig/merge_config.sh -m -O "${OUT_DIR}" \
             "${OUT_DIR}/.config" "${GAMING_FRAGMENT}"
+        make "${MAKE_FLAGS[@]}" olddefconfig
+    fi
+
+    # Merge extreme gaming fragment (Replit/NixOS toolchain compat + ultra tuning)
+    if [ -f "${GAMING_EXTREME_FRAGMENT}" ]; then
+        log_info "Merging extreme gaming fragment: fogos_gaming_extreme.config"
+        ./scripts/kconfig/merge_config.sh -m -O "${OUT_DIR}" \
+            "${OUT_DIR}/.config" "${GAMING_EXTREME_FRAGMENT}"
         make "${MAKE_FLAGS[@]}" olddefconfig
     fi
 
