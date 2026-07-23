@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ###############################################################################
 # VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
-# Build Script
+# Build Script (Replit / NixOS Edition)
 #
 # Developer : Prince · VirgoYT707
 # Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
@@ -9,54 +9,52 @@
 #
 # "I don't chase. I attract. I WIN." — VirgoYT707
 #
-# REQUIREMENTS (Ubuntu 20.04/22.04 recommended):
-#   sudo apt-get install -y bc bison build-essential ccache curl flex \
-#     g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev \
-#     lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev \
-#     libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
-#     schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python-is-python3
-#
-# TOOLCHAIN:
-#   - Clang 20.0+ (Android kernel toolchain)
-#   - Download: https://github.com/ZyCromerZ/Clang or Android clang prebuilts
+# TOOLCHAIN (auto-detected on Replit):
+#   - Clang 19 (LLVM) via Nix
+#   - aarch64-unknown-linux-gnu-* (binutils) via Nix
 #
 # USAGE:
 #   ./build_fogos.sh              # Full build
-#   ./build_fogos.sh --clean      # Clean build
+#   ./build_fogos.sh --clean      # Clean before build
 #   ./build_fogos.sh --menuconfig # Open menuconfig
+#   ./build_fogos.sh --bootimg /path/to/stock_boot.img  # Build boot.img too
 ###############################################################################
 
 set -e
 
 ###############################################################################
-# CONFIGURATION — Edit these paths for your machine
+# CONFIGURATION
 ###############################################################################
-
 KERNEL_DIR="$(pwd)"
 OUT_DIR="${KERNEL_DIR}/out"
 ANYKERNEL_DIR="${KERNEL_DIR}/anykernel3"
 ZIP_DIR="${KERNEL_DIR}/release"
 
-# Toolchain paths — adjust to where you installed clang
-CLANG_DIR="${HOME}/toolchains/clang"
-GCC_DIR="${HOME}/toolchains/gcc/aarch64-linux-android-4.9/bin"
-GCC32_DIR="${HOME}/toolchains/gcc/arm-linux-androideabi-4.9/bin"
+# Toolchain — auto-detected for Replit/NixOS
+CLANG_BIN="$(dirname "$(which clang)")"
+LLVM_BIN="$(dirname "$(which llvm-ar)")"
+GCC_AARCH64_BIN="/nix/store/3qwn7dr7n9vhm07bkavlqyxilhnj6b27-aarch64-unknown-linux-gnu-gcc-wrapper-13.3.0/bin"
 
-# Cross-compile target
+# Cross-compile settings
 ARCH="arm64"
 SUBARCH="arm64"
+CROSS_COMPILE="aarch64-unknown-linux-gnu-"
+CLANG_TRIPLE="aarch64-linux-gnu-"
 
-# Defconfig: base Holi QGKI + FogOS gaming fragment
-BASE_DEFCONFIG="vendor/holi-qgki_defconfig"
+# Defconfig — full pre-tuned gaming defconfig
+DEFCONFIG="vendor/fogos_defconfig"
 GAMING_FRAGMENT="${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_gaming.config"
 
-# Kernel version branding
-KERNEL_VERSION="FogOS-Extreme-Gaming-v1.0"
-DATE="$(date +%Y%m%d)"
+# Branding
+KERNEL_VERSION="FogOS-Extreme-Gaming-v2.0-Ultra"
+DATE="$(date +%Y%m%d-%H%M)"
 ZIP_NAME="${KERNEL_VERSION}-Holi-${DATE}.zip"
 
-# Number of build jobs
 JOBS=$(nproc --all)
+
+# boot.img support (pass --bootimg <stock_boot.img>)
+STOCK_BOOT_IMG=""
+DO_BOOTIMG=false
 
 ###############################################################################
 # COLORS
@@ -66,12 +64,14 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 NC='\033[0m'
 
 log_info()    { echo -e "${CYAN}[FogOS] $1${NC}"; }
 log_success() { echo -e "${GREEN}[FogOS] ✓ $1${NC}"; }
 log_warn()    { echo -e "${YELLOW}[FogOS] ⚠ $1${NC}"; }
 log_error()   { echo -e "${RED}[FogOS] ✗ $1${NC}"; exit 1; }
+log_step()    { echo -e "${MAGENTA}[FogOS] ━━ $1 ━━${NC}"; }
 
 ###############################################################################
 # ARGUMENT PARSING
@@ -82,9 +82,16 @@ for ARG in "$@"; do
     case "$ARG" in
         --clean)      DO_CLEAN=true ;;
         --menuconfig) DO_MENUCONFIG=true ;;
+        --bootimg)    DO_BOOTIMG=true ;;
         --help|-h)
-            echo "Usage: $0 [--clean] [--menuconfig]"
+            echo "Usage: $0 [--clean] [--menuconfig] [--bootimg]"
+            echo "  --bootimg : also build boot.img (place stock_boot.img in kernel dir first)"
             exit 0
+            ;;
+        *)
+            if $DO_BOOTIMG && [ -z "$STOCK_BOOT_IMG" ] && [ -f "$ARG" ]; then
+                STOCK_BOOT_IMG="$ARG"
+            fi
             ;;
     esac
 done
@@ -93,160 +100,243 @@ done
 # TOOLCHAIN SETUP
 ###############################################################################
 setup_toolchain() {
-    log_info "Setting up toolchain..."
+    log_step "Toolchain Setup"
 
-    # Try to auto-detect clang
-    if [ -d "$CLANG_DIR" ]; then
-        CLANG_BIN="$CLANG_DIR/bin"
-    elif command -v clang-20 &>/dev/null; then
-        CLANG_BIN="$(dirname $(which clang-20))"
-    elif command -v clang &>/dev/null; then
-        CLANG_BIN="$(dirname $(which clang))"
-    else
-        log_error "Clang not found! Install from:\n  https://github.com/ZyCromerZ/Clang\n  or: sudo apt install clang"
+    if ! command -v clang &>/dev/null; then
+        log_error "clang not found! Run: nix-env -iA nixpkgs.clang"
     fi
 
-    # Try to auto-detect GCC (needed for some modules)
-    if [ -d "$GCC_DIR" ]; then
-        CROSS_COMPILE="${GCC_DIR}/aarch64-linux-android-"
-        CROSS_COMPILE_ARM32="${GCC32_DIR}/arm-linux-androideabi-"
-    elif command -v aarch64-linux-gnu-gcc &>/dev/null; then
-        CROSS_COMPILE="aarch64-linux-gnu-"
-        CROSS_COMPILE_ARM32="arm-linux-gnueabihf-"
-    else
-        log_warn "GCC not found, using clang for everything"
-        CROSS_COMPILE="$CLANG_BIN/aarch64-linux-gnu-"
-        CROSS_COMPILE_ARM32="$CLANG_BIN/arm-linux-gnueabihf-"
+    if [ ! -d "$GCC_AARCH64_BIN" ]; then
+        log_warn "Expected GCC aarch64 wrapper not found at $GCC_AARCH64_BIN"
+        log_warn "Searching for alternative..."
+        ALT=$(find /nix/store -maxdepth 2 -name "aarch64-unknown-linux-gnu-gcc" 2>/dev/null | head -1)
+        if [ -n "$ALT" ]; then
+            GCC_AARCH64_BIN="$(dirname "$ALT")"
+            log_info "Found at: $GCC_AARCH64_BIN"
+        else
+            log_warn "No aarch64 GCC found — using pure LLVM mode"
+            CROSS_COMPILE=""
+        fi
     fi
 
-    log_success "Clang: $(${CLANG_BIN}/clang --version 2>/dev/null | head -1)"
-}
+    # Add toolchain bins to PATH
+    export PATH="${CLANG_BIN}:${LLVM_BIN}:${GCC_AARCH64_BIN}:${PATH}"
 
-###############################################################################
-# BUILD ARGUMENTS
-###############################################################################
-make_args() {
-    echo \
-        O="${OUT_DIR}" \
-        ARCH="${ARCH}" \
-        SUBARCH="${SUBARCH}" \
-        CC="${CLANG_BIN}/clang" \
-        CLANG_TRIPLE="aarch64-linux-gnu-" \
-        CROSS_COMPILE="${CROSS_COMPILE}" \
-        CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32}" \
-        LD="${CLANG_BIN}/ld.lld" \
-        AR="${CLANG_BIN}/llvm-ar" \
-        NM="${CLANG_BIN}/llvm-nm" \
-        OBJCOPY="${CLANG_BIN}/llvm-objcopy" \
-        OBJDUMP="${CLANG_BIN}/llvm-objdump" \
-        STRIP="${CLANG_BIN}/llvm-strip" \
-        -j${JOBS} \
-        LOCALVERSION="-FogOS-Extreme-Gaming-v1.0"
-}
-
-###############################################################################
-# GENERATE DEFCONFIG
-###############################################################################
-generate_defconfig() {
-    log_info "Generating defconfig: ${BASE_DEFCONFIG} + gaming fragment..."
-
-    mkdir -p "${OUT_DIR}"
-
-    # Start from the base Holi QGKI defconfig
-    make $(make_args) "${BASE_DEFCONFIG}"
-
-    # Merge in gaming optimizations fragment
-    if [ -f "${GAMING_FRAGMENT}" ]; then
-        log_info "Merging gaming fragment: fogos_gaming.config"
-        ./scripts/kconfig/merge_config.sh \
-            -m \
-            -O "${OUT_DIR}" \
-            "${OUT_DIR}/.config" \
-            "${GAMING_FRAGMENT}"
-        make $(make_args) olddefconfig
-        log_success "Gaming fragment merged"
-    else
-        log_warn "Gaming fragment not found at: ${GAMING_FRAGMENT}"
+    log_success "Clang:   $(clang --version | head -1)"
+    log_success "LLD:     $(ld.lld --version | head -1)"
+    log_success "LLVM-AR: $(llvm-ar --version | head -1)"
+    if [ -n "$CROSS_COMPILE" ]; then
+        log_success "GCC:     $(${CROSS_COMPILE}gcc --version | head -1)"
     fi
 }
+
+###############################################################################
+# COMMON MAKE FLAGS
+###############################################################################
+MAKE_FLAGS=(
+    ARCH="${ARCH}"
+    SUBARCH="${SUBARCH}"
+    CC="clang"
+    CLANG_TRIPLE="${CLANG_TRIPLE}"
+    CROSS_COMPILE="${CROSS_COMPILE}"
+    LLVM=1
+    LLVM_IAS=1
+    AR="llvm-ar"
+    NM="llvm-nm"
+    OBJCOPY="llvm-objcopy"
+    OBJDUMP="llvm-objdump"
+    STRIP="llvm-strip"
+    O="${OUT_DIR}"
+    -j"${JOBS}"
+)
 
 ###############################################################################
 # CLEAN
 ###############################################################################
 do_clean() {
-    log_info "Cleaning build artifacts..."
+    log_step "Clean Build"
+    make "${MAKE_FLAGS[@]}" mrproper
     rm -rf "${OUT_DIR}"
-    log_success "Clean complete"
+    log_success "Cleaned output directory"
 }
 
 ###############################################################################
 # MENUCONFIG
 ###############################################################################
 do_menuconfig() {
-    generate_defconfig
-    make $(make_args) menuconfig
-    make $(make_args) savedefconfig
-    log_success "Saved defconfig to ${OUT_DIR}/defconfig"
+    log_step "menuconfig"
+    mkdir -p "${OUT_DIR}"
+    make "${MAKE_FLAGS[@]}" "${DEFCONFIG}"
+    make "${MAKE_FLAGS[@]}" menuconfig
 }
 
 ###############################################################################
-# MAIN BUILD
+# BUILD KERNEL
 ###############################################################################
 build_kernel() {
-    log_info "Starting FogOS Extreme Gaming Kernel build..."
-    log_info "Jobs: ${JOBS} | Arch: ${ARCH}"
+    log_step "Configuring FogOS Extreme Gaming Kernel"
+    mkdir -p "${OUT_DIR}" "${ZIP_DIR}"
+
+    # Load base defconfig
+    log_info "Loading defconfig: ${DEFCONFIG}"
+    make "${MAKE_FLAGS[@]}" "${DEFCONFIG}"
+
+    # Merge gaming fragment
+    if [ -f "${GAMING_FRAGMENT}" ]; then
+        log_info "Merging gaming fragment: fogos_gaming.config"
+        ./scripts/kconfig/merge_config.sh -m -O "${OUT_DIR}" \
+            "${OUT_DIR}/.config" "${GAMING_FRAGMENT}"
+        make "${MAKE_FLAGS[@]}" olddefconfig
+    fi
+
+    log_success "Config ready — $(grep -c '=y' "${OUT_DIR}/.config") options enabled"
+
+    log_step "Compiling Linux 5.4.302 — FogOS Extreme Gaming"
+    log_info "Jobs: ${JOBS} | Target: ${ARCH} | Compiler: clang+LLVM"
+    echo ""
 
     START_TIME=$(date +%s)
 
-    # Generate config
-    generate_defconfig
-
-    # Build kernel image
-    log_info "Building kernel image (Image.gz)..."
-    make $(make_args) Image.gz-dtb dtbs
+    make "${MAKE_FLAGS[@]}" Image.gz-dtb 2>&1 | tee "${OUT_DIR}/build.log" || {
+        log_warn "Image.gz-dtb failed, trying Image..."
+        make "${MAKE_FLAGS[@]}" Image 2>&1 | tee -a "${OUT_DIR}/build.log" || {
+            log_error "Kernel build failed! Check ${OUT_DIR}/build.log"
+        }
+    }
 
     END_TIME=$(date +%s)
-    ELAPSED=$((END_TIME - START_TIME))
-    log_success "Kernel built in $((ELAPSED/60))m $((ELAPSED%60))s"
+    BUILD_TIME=$((END_TIME - START_TIME))
+    log_success "Kernel compiled in ${BUILD_TIME}s"
 }
 
 ###############################################################################
-# PACKAGE - AnyKernel3 ZIP
+# PACKAGE ANYKERNEL3 ZIP
 ###############################################################################
 package_zip() {
-    log_info "Packaging AnyKernel3 ZIP..."
+    log_step "Packaging AnyKernel3 Flashable ZIP"
 
-    KERNEL_IMAGE="${OUT_DIR}/arch/${ARCH}/boot/Image.gz"
-    KERNEL_IMAGE_DTB="${OUT_DIR}/arch/${ARCH}/boot/Image.gz-dtb"
+    KERNEL_IMG=""
+    for img in "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb" \
+               "${OUT_DIR}/arch/arm64/boot/Image.gz" \
+               "${OUT_DIR}/arch/arm64/boot/Image"; do
+        if [ -f "$img" ]; then
+            KERNEL_IMG="$img"
+            break
+        fi
+    done
 
-    [ ! -f "${KERNEL_IMAGE_DTB}" ] && \
-        [ ! -f "${KERNEL_IMAGE}" ] && \
-        log_error "Kernel image not found! Build failed?"
+    if [ -z "$KERNEL_IMG" ]; then
+        log_error "No kernel image found in ${OUT_DIR}/arch/arm64/boot/"
+    fi
 
-    # Prepare AnyKernel3 directory
-    cp -f "${KERNEL_IMAGE_DTB:-$KERNEL_IMAGE}" "${ANYKERNEL_DIR}/Image.gz-dtb" 2>/dev/null || \
-    cp -f "${KERNEL_IMAGE}" "${ANYKERNEL_DIR}/Image.gz"
+    log_info "Kernel image: $KERNEL_IMG"
 
-    # Copy DTBO if present
-    DTBO="${OUT_DIR}/arch/${ARCH}/boot/dtbo.img"
-    [ -f "${DTBO}" ] && cp -f "${DTBO}" "${ANYKERNEL_DIR}/dtbo.img"
+    # Copy into AnyKernel dir
+    cp "${KERNEL_IMG}" "${ANYKERNEL_DIR}/Image.gz-dtb" 2>/dev/null || \
+    cp "${KERNEL_IMG}" "${ANYKERNEL_DIR}/Image"
 
-    # Install gaming init script to AnyKernel3
-    mkdir -p "${ANYKERNEL_DIR}/system/etc/init.d"
-    cp -f "${ANYKERNEL_DIR}/fogos_gaming_init.sh" \
-          "${ANYKERNEL_DIR}/system/etc/init.d/99-fogos-gaming"
-    chmod 755 "${ANYKERNEL_DIR}/system/etc/init.d/99-fogos-gaming"
+    # Copy DTBs if present
+    if [ -d "${OUT_DIR}/arch/arm64/boot/dts/qcom" ]; then
+        mkdir -p "${ANYKERNEL_DIR}/dtbs"
+        cp "${OUT_DIR}/arch/arm64/boot/dts/qcom/"*.dtb "${ANYKERNEL_DIR}/dtbs/" 2>/dev/null || true
+        log_info "DTBs copied"
+    fi
 
-    # Create ZIP
-    mkdir -p "${ZIP_DIR}"
+    # Build the zip
     cd "${ANYKERNEL_DIR}"
     zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . \
-        --exclude="*.git*" \
-        --exclude="*.DS_Store*" \
-        --exclude="fogos_gaming_init.sh"
+        --exclude='.git/*' --exclude='*.placeholder'
     cd "${KERNEL_DIR}"
 
-    log_success "ZIP created: ${ZIP_DIR}/${ZIP_NAME}"
+    log_success "AnyKernel3 ZIP: ${ZIP_DIR}/${ZIP_NAME}"
+    log_success "Size: $(du -sh "${ZIP_DIR}/${ZIP_NAME}" | cut -f1)"
+}
+
+###############################################################################
+# BUILD BOOT.IMG (requires stock_boot.img)
+###############################################################################
+build_bootimg() {
+    log_step "Building boot.img"
+
+    if [ ! -f "${STOCK_BOOT_IMG}" ]; then
+        # look for it in common locations
+        for candidate in "${KERNEL_DIR}/stock_boot.img" "${KERNEL_DIR}/boot.img"; do
+            [ -f "$candidate" ] && STOCK_BOOT_IMG="$candidate" && break
+        done
+    fi
+
+    if [ ! -f "${STOCK_BOOT_IMG}" ]; then
+        log_warn "No stock_boot.img found — skipping boot.img creation"
+        log_warn "To build boot.img:"
+        log_warn "  1. Place your device's stock_boot.img in the kernel directory"
+        log_warn "  2. Run: ./build_fogos.sh --bootimg stock_boot.img"
+        return 0
+    fi
+
+    MKBOOTIMG=$(which mkbootimg 2>/dev/null || echo "")
+    if [ -z "$MKBOOTIMG" ]; then
+        log_warn "mkbootimg not found — installing..."
+        pip3 install --quiet mkbootimg 2>/dev/null || true
+        MKBOOTIMG=$(which mkbootimg 2>/dev/null || echo "")
+    fi
+
+    if [ -z "$MKBOOTIMG" ]; then
+        log_warn "Could not install mkbootimg. Downloading Android tools..."
+        local TOOLS_DIR="${OUT_DIR}/android_tools"
+        mkdir -p "$TOOLS_DIR"
+        if command -v python3 &>/dev/null; then
+            python3 - << 'PYEOF'
+import urllib.request, os, stat, sys
+url = "https://android.googlesource.com/platform/system/tools/mkbootimg/+archive/refs/heads/main.tar.gz"
+print(f"Cannot auto-download mkbootimg in this environment.")
+print(f"Please provide stock_boot.img and mkbootimg manually.")
+PYEOF
+        fi
+        log_warn "Skipping boot.img — see instructions above"
+        return 0
+    fi
+
+    log_info "Extracting ramdisk from: ${STOCK_BOOT_IMG}"
+    UNPACK_DIR="${OUT_DIR}/boot_unpack"
+    mkdir -p "${UNPACK_DIR}"
+
+    # Unpack stock boot image using python3
+    python3 - <<PYEOF
+import subprocess, sys
+r = subprocess.run(
+    ["python3", "-m", "mkbootimg", "--unpack", "${STOCK_BOOT_IMG}", "--out", "${UNPACK_DIR}"],
+    capture_output=True, text=True
+)
+if r.returncode != 0:
+    print("unpack failed:", r.stderr)
+    sys.exit(1)
+print("Stock boot.img unpacked")
+PYEOF
+
+    # Find our kernel image
+    KERNEL_IMG=""
+    for img in "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb" \
+               "${OUT_DIR}/arch/arm64/boot/Image.gz" \
+               "${OUT_DIR}/arch/arm64/boot/Image"; do
+        [ -f "$img" ] && KERNEL_IMG="$img" && break
+    done
+
+    BOOTIMG_OUT="${ZIP_DIR}/${KERNEL_VERSION}-Holi-${DATE}-boot.img"
+
+    log_info "Building boot.img with new kernel..."
+    python3 -m mkbootimg \
+        --kernel "${KERNEL_IMG}" \
+        --ramdisk "${UNPACK_DIR}/ramdisk" \
+        --pagesize 4096 \
+        --base 0x00000000 \
+        --kernel_offset 0x00008000 \
+        --ramdisk_offset 0x01000000 \
+        --tags_offset 0x00000100 \
+        --cmdline "console=ttyMSM0,115200n8 androidboot.hardware=qcom androidboot.console=ttyMSM0 androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 androidboot.usbcontroller=4e00000.dwc3 swiotlb=2048 loop.max_part=7 cgroup.memory=nokmem,nosocket reboot=panic_warm buildvariant=user" \
+        -o "${BOOTIMG_OUT}"
+
+    log_success "boot.img: ${BOOTIMG_OUT}"
+    log_success "Size: $(du -sh "${BOOTIMG_OUT}" | cut -f1)"
 }
 
 ###############################################################################
@@ -254,18 +344,26 @@ package_zip() {
 ###############################################################################
 print_summary() {
     echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║   FogOS Extreme Gaming Kernel v1.0 - BUILD DONE!    ║${NC}"
-    echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║  Device  : Motorola G45 (SM6375 / Holi)             ║${NC}"
-    echo -e "${GREEN}║  Dev     : Prince (VirgoYT707)                      ║${NC}"
-    echo -e "${GREEN}║  Base    : Linux 5.4.302                            ║${NC}"
-    echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║  Output:                                            ║${NC}"
-    echo -e "${GREEN}║  • ${ZIP_DIR}/${ZIP_NAME}  ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║  👑  FogOS Extreme Gaming Kernel v2.0 Ultra — DONE  ║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║  Device : Motorola G45 / G34 (SM6375 / Holi)        ║${NC}"
+    echo -e "${CYAN}║  Dev    : Prince (VirgoYT707)                        ║${NC}"
+    echo -e "${CYAN}║  Base   : Linux 5.4.302 · Android 16                ║${NC}"
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║  Output:                                             ║${NC}"
+    echo -e "${CYAN}║  AnyKernel3 ZIP → release/ folder                   ║${NC}"
+    if $DO_BOOTIMG; then
+    echo -e "${CYAN}║  boot.img       → release/ folder                   ║${NC}"
+    fi
+    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║  Flash: TWRP → Install → Select ZIP                 ║${NC}"
+    if $DO_BOOTIMG; then
+    echo -e "${CYAN}║     or: fastboot flash boot boot.img                 ║${NC}"
+    fi
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${CYAN}Flash with: TWRP → Install → ${ZIP_NAME}${NC}"
+    echo -e "${GREEN}  👑 Built Different · VirgoYT707 · Prince 👑${NC}"
     echo ""
 }
 
@@ -274,8 +372,8 @@ print_summary() {
 ###############################################################################
 echo ""
 echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║       FogOS Extreme Gaming Kernel Builder            ║${NC}"
-echo -e "${CYAN}║   Device: Motorola G45 (SM6375/Holi) | v1.0         ║${NC}"
+echo -e "${CYAN}║    VirgoYT Gaming Kernel — FogOS Extreme v2.0 Ultra  ║${NC}"
+echo -e "${CYAN}║   Device: Motorola G45/G34 (SM6375/Holi)            ║${NC}"
 echo -e "${CYAN}║   Developer: Prince (VirgoYT707)                    ║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
@@ -293,4 +391,9 @@ fi
 
 build_kernel
 package_zip
+
+if $DO_BOOTIMG; then
+    build_bootimg
+fi
+
 print_summary

@@ -1,0 +1,79 @@
+I have connected my GitHub account. You can directly access and modify my repository:
+
+Repository:
+https://github.com/darkvirgoyt-beep/Motorola-g45-34-gaming-kernel-Fogos-new.git
+
+Goal:
+Convert my Motorola G45 FogOS Gaming Kernel source into a working bootable boot.img.
+
+I will upload my current working boot.img from my Motorola G45. Use it as the base.
+
+Device information:
+- Device: Motorola G45 5G
+- SoC: Qualcomm SM6375 (Holi)
+- Architecture: arm64
+- Android: 16
+- Kernel: 5.4.x
+- Kernel project: FogOS Gaming Kernel
+- Developer branding: VIRGOYT707
+
+Your tasks:
+
+1. Inspect my GitHub kernel repository:
+- Analyze the source tree.
+- Find correct defconfig.
+- Verify arch/arm64 configs.
+- Verify device tree files.
+- Check if kernel source is complete for building.
+- Fix build errors if found.
+
+2. Analyze my uploaded boot.img:
+- Extract boot image components.
+- Detect boot header version.
+- Extract ramdisk.
+- Identify kernel compression format.
+- Detect DTB/DTBO.
+- Save all required information for repacking.
+
+3. Modify my GitHub repository:
+- Add required build scripts.
+- Add boot image extraction and repacking scripts.
+- Add GitHub Actions workflow if needed.
+- Fix missing configs or build issues.
+- Keep Motorola drivers and vendor compatibility.
+- Do not make generic Android kernel changes.
+
+4. Kernel build:
+- Configure for Motorola G45 SM6375.
+- Compile ARM64 kernel.
+- Generate the correct kernel image format required by my boot.img.
+- Keep compatibility with Android 16 Evolution X.
+
+5. Boot.img creation:
+- Use my uploaded boot.img as the base.
+- Keep original ramdisk.
+- Keep original DTB/DTBO.
+- Replace only the kernel.
+- Repack into a new boot.img.
+- Maintain AVB compatibility as much as possible.
+
+6. Add automation:
+Create a GitHub Actions workflow that:
+- Downloads required tools.
+- Builds the kernel.
+- Creates boot.img automatically.
+- Uploads boot.img as an artifact.
+
+7. Final output:
+Provide:
+- Modified GitHub files.
+- Build instructions.
+- GitHub Actions status.
+- Generated boot.img artifact.
+- Any required flashing instructions.
+
+Important:
+Do not rewrite the whole kernel.
+Do not remove existing Motorola hardware support.
+Use my uploaded boot.img as the compatibility reference.
+The objective is a bootable Motorola G45 kernel, not just a successful compilation.
