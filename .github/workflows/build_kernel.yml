@@ -310,9 +310,10 @@ AKEOF
           echo "✅ Package created: $ZIP_NAME.zip"
           ls -lh $ZIP_DIR/
 
-      # ──────────────────────────────────────────
+            # ──────────────────────────────────────────
       # 10. Upload artifacts
       # ──────────────────────────────────────────
+
       - name: Upload Kernel ZIP
         uses: actions/upload-artifact@v4
         with:
@@ -320,7 +321,7 @@ AKEOF
           path: ${{ env.ZIP_DIR }}/*.zip
           retention-days: 30
 
-                  - name: Upload Build Log
+      - name: Upload Build Log
         uses: actions/upload-artifact@v4
         if: always()
         with:
