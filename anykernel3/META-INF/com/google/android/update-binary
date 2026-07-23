@@ -1,0 +1,6 @@
+#!/sbin/sh
+# AnyKernel3 update-binary stub
+# Calls the real AnyKernel3 installer
+SKIPUNZIP=1
+. /tmp/anykernel/tools/ak3-core.sh
+. /tmp/anykernel/anykernel.sh
