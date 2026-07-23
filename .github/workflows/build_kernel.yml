@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     
     env:
-      KERNEL_NAME: FogOS-Extreme-Gaming
-      KERNEL_VERSION: v2.0
+      KERNEL_NAME: FogOS
+      KERNEL_VERSION: v2
       DEVICE: Holi
       ARCH: arm64
       SUBARCH: arm64
