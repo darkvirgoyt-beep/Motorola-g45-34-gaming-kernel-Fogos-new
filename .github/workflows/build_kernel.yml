@@ -320,11 +320,10 @@ AKEOF
           path: ${{ env.ZIP_DIR }}/*.zip
           retention-days: 30
 
-            - name: Upload Build Log
+                  - name: Upload Build Log
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: build-log-${{ env.DATE }}
           path: ${{ env.BUILD_LOG }}
           retention-days: 7
-          OKEN: ${{ secrets.GITHUB_TOKEN }}
