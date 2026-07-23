@@ -1,0 +1,173 @@
+name: VirgoYT Gaming Kernel Build
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create Release?'
+        default: 'false'
+        type: choice
+        options: ['true','false']
+env:
+  KERNEL_NAME: "FogOS-Extreme-Gaming"
+  KERNEL_VERSION: "v2.0"
+  DEVICE: "Holi"
+  ARCH: arm64
+  SUBARCH: arm64
+  CLANG_URL: "https://github.com/ZyCromerZ/Clang/releases/download/20.0.0git-20240601-release/Clang-20.0.0git-20240601.tar.gz"
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bc bison build-essential ccache curl flex \
+            g++-multilib gcc-multilib git libncurses5-dev libssl-dev \
+            libxml2-utils lzop zip zlib1g-dev python3 python-is-python3 lz4
+
+      - name: Setup ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-fogos-${{ github.sha }}
+          restore-keys: ccache-fogos-
+
+      - name: Download Clang toolchain
+        run: |
+          mkdir -p $HOME/toolchains/clang
+          if curl -fL "${{ env.CLANG_URL }}" -o /tmp/clang.tar.gz 2>/dev/null; then
+            tar -xf /tmp/clang.tar.gz -C $HOME/toolchains/clang --strip-components=1
+          else
+            sudo apt-get install -y clang lld llvm
+            mkdir -p $HOME/toolchains/clang/bin
+            for T in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
+              ln -sf $(which $T) $HOME/toolchains/clang/bin/$T 2>/dev/null || true
+            done
+          fi
+          echo "CLANG_PATH=$HOME/toolchains/clang/bin" >> $GITHUB_ENV
+
+      - name: Download GCC
+        run: |
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 $HOME/toolchains/gcc-aarch64 || true
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 $HOME/toolchains/gcc-arm || true
+          echo "GCC_PATH=$HOME/toolchains/gcc-aarch64/bin" >> $GITHUB_ENV
+          echo "GCC32_PATH=$HOME/toolchains/gcc-arm/bin" >> $GITHUB_ENV
+
+      - name: Set build metadata
+        run: |
+          DATE=$(date +%Y%m%d)
+          ZIP_NAME="${{ env.KERNEL_NAME }}-${{ env.KERNEL_VERSION }}-${{ env.DEVICE }}-${DATE}"
+          echo "DATE=$DATE" >> $GITHUB_ENV
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "OUT_DIR=$GITHUB_WORKSPACE/out" >> $GITHUB_ENV
+          echo "ZIP_DIR=$GITHUB_WORKSPACE/release" >> $GITHUB_ENV
+
+      - name: Generate defconfig
+        run: |
+          CLANG=${{ env.CLANG_PATH }}
+          GCC=${{ env.GCC_PATH }}
+          GCC32=${{ env.GCC32_PATH }}
+          mkdir -p ${{ env.OUT_DIR }}
+          make O=${{ env.OUT_DIR }} ARCH=arm64 CC=${CLANG}/clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=${GCC}/aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=${GCC32}/arm-linux-androideabi- \
+            LD=${CLANG}/ld.lld AR=${CLANG}/llvm-ar NM=${CLANG}/llvm-nm \
+            OBJCOPY=${CLANG}/llvm-objcopy OBJDUMP=${CLANG}/llvm-objdump \
+            STRIP=${CLANG}/llvm-strip -j$(nproc) \
+            vendor/holi-qgki_defconfig
+          scripts/kconfig/merge_config.sh -m -O ${{ env.OUT_DIR }} \
+            ${{ env.OUT_DIR }}/.config \
+            arch/arm64/configs/vendor/fogos_gaming.config
+          make O=${{ env.OUT_DIR }} ARCH=arm64 CC=${CLANG}/clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=${GCC}/aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=${GCC32}/arm-linux-androideabi- \
+            LD=${CLANG}/ld.lld AR=${CLANG}/llvm-ar NM=${CLANG}/llvm-nm \
+            OBJCOPY=${CLANG}/llvm-objcopy OBJDUMP=${CLANG}/llvm-objdump \
+            STRIP=${CLANG}/llvm-strip -j$(nproc) olddefconfig
+
+      - name: Build kernel
+        run: |
+          CLANG=${{ env.CLANG_PATH }}
+          GCC=${{ env.GCC_PATH }}
+          GCC32=${{ env.GCC32_PATH }}
+          make O=${{ env.OUT_DIR }} ARCH=arm64 CC=${CLANG}/clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=${GCC}/aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=${GCC32}/arm-linux-androideabi- \
+            LD=${CLANG}/ld.lld AR=${CLANG}/llvm-ar NM=${CLANG}/llvm-nm \
+            OBJCOPY=${CLANG}/llvm-objcopy OBJDUMP=${CLANG}/llvm-objdump \
+            STRIP=${CLANG}/llvm-strip \
+            LOCALVERSION="-FogOS-Extreme-Gaming-v2.0" \
+            -j$(nproc) Image.gz-dtb dtbs 2>&1 | tee build.log
+
+      - name: Verify image
+        run: |
+          BOOT=${{ env.OUT_DIR }}/arch/arm64/boot
+          if [ -f "$BOOT/Image.gz-dtb" ]; then
+            echo "KERNEL_IMAGE=$BOOT/Image.gz-dtb" >> $GITHUB_ENV
+          elif [ -f "$BOOT/Image.gz" ]; then
+            echo "KERNEL_IMAGE=$BOOT/Image.gz" >> $GITHUB_ENV
+          else
+            echo "Build failed - no image found"
+            tail -80 build.log
+            exit 1
+          fi
+
+      - name: Package ZIP
+        run: |
+          mkdir -p ${{ env.ZIP_DIR }}
+          cp "${{ env.KERNEL_IMAGE }}" anykernel3/Image.gz-dtb 2>/dev/null || \
+          cp "${{ env.KERNEL_IMAGE }}" anykernel3/Image.gz
+          DTBO="${{ env.OUT_DIR }}/arch/arm64/boot/dtbo.img"
+          [ -f "$DTBO" ] && cp "$DTBO" anykernel3/dtbo.img
+          mkdir -p anykernel3/system/etc/init.d
+          cp anykernel3/fogos_gaming_init.sh anykernel3/system/etc/init.d/99-fogos-gaming
+          chmod 755 anykernel3/system/etc/init.d/99-fogos-gaming
+          cd anykernel3
+          zip -r9 "${{ env.ZIP_DIR }}/${{ env.ZIP_NAME }}.zip" . \
+            --exclude="*.git*" --exclude="fogos_gaming_init.sh"
+          cd ..
+
+      - name: Upload ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: ${{ env.ZIP_DIR }}/${{ env.ZIP_NAME }}.zip
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
+
+      - name: Create Release
+        if: github.event.inputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: FogOS-${{ env.KERNEL_VERSION }}-${{ env.DATE }}
+          name: "VirgoYT Gaming Kernel FogOS ${{ env.KERNEL_VERSION }} - ${{ env.DATE }}"
+          body: |
+            ## VirgoYT Gaming Kernel - FogOS Extreme Gaming
+            Developer: Prince (VirgoYT707)
+            Device: Motorola G45/G34 (SM6375/Holi)
+            Base: Linux 5.4.302
+
+            Flash via TWRP. See FLASHING_GUIDE.md for full instructions.
+          files: ${{ env.ZIP_DIR }}/${{ env.ZIP_NAME }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
