@@ -1,12 +1,13 @@
 ###############################################################################
-# AnyKernel3 - FogOS Extreme Gaming Kernel
-# Device: Motorola G45 (SM6375 / Holi)
-# Developer: Prince (VirgoYT707)
+# VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
+# Device: Motorola G45 / G34 (SM6375 / Holi)
+# Developer: Prince · VirgoYT707
+# "I don't chase. I attract. I WIN."
 ###############################################################################
 
 # AnyKernel setup
 properties() { '
-kernel.string=FogOS Extreme Gaming Kernel v1.0 by Prince (VirgoYT707)
+kernel.string=VirgoYT Gaming Kernel FogOS v2.0 | Developer: Prince (VirgoYT707) | Built Different
 do.devicecheck=1
 do.modules=0
 do.systemless=1

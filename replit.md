@@ -1,10 +1,11 @@
-# FogOS Extreme Gaming Kernel
+# VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
 
-**Developer:** Prince (VirgoYT707)  
-**Device:** Motorola G45 (SM6375 / Holi)  
+**Developer:** Prince · VirgoYT707  
+**Device:** Motorola G45 / G34 (SM6375 / Holi)  
 **Android Version:** 16  
 **Kernel Base:** Linux 5.4.302  
-**Version:** FogOS Extreme Gaming Kernel v1.0
+**Version:** v2.0 Ultra  
+**Motto:** *"I don't chase. I attract. I WIN."*
 
 ---
 
@@ -88,7 +89,7 @@ A gaming-optimized Android kernel for the Motorola G45 (Qualcomm SM6375 / Holi p
 
 ## How to Build
 
-> **Build on Ubuntu 20.04 or 22.04** — Replit is for editing; kernel compilation requires a Linux host with a cross-compiler.
+> **Build on Ubuntu 20.04 or 22.04** — Kernel compilation requires a Linux host with a cross-compiler. Use GitHub Actions for automated cloud builds (see Releases tab).
 
 ### 1. Install dependencies
 ```bash

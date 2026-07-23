@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 ###############################################################################
-# FogOS Extreme Gaming Kernel - Build Script
-# Device: Motorola G45 (SM6375 / Holi)
-# Developer: Prince (VirgoYT707)
-# Kernel Base: 5.4.302
+# VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
+# Build Script
+#
+# Developer : Prince · VirgoYT707
+# Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
+# Base      : Linux 5.4.302 · Android 16
+#
+# "I don't chase. I attract. I WIN." — VirgoYT707
 #
 # REQUIREMENTS (Ubuntu 20.04/22.04 recommended):
 #   sudo apt-get install -y bc bison build-essential ccache curl flex \
