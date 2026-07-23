@@ -2,7 +2,9 @@ name: FogOS Extreme Gaming Kernel
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - sixteen-qpr2
   workflow_dispatch:
 
 jobs:
