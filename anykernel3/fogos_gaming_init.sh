@@ -16,11 +16,35 @@
 #   • Complete network/connectivity overhaul for lowest ping
 ###############################################################################
 
-# Wait for system to be fully up
-sleep 8
-
 TAG="FogOS"
 log() { echo "[$TAG] $1" >> /data/local/fogos_boot.log 2>/dev/null; echo "[$TAG] $1"; }
+
+# Optimize a single running game process: max priority, RT scheduling and
+# big-core (CPU4-7) affinity. Defined near the top so the unit-test suite can
+# source it without running the full boot sequence.
+optimize_game() {
+    local PKGNAME="$1"
+    local PID=$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)
+    if [ -n "$PID" ]; then
+        # Highest scheduling priority
+        renice -n -20 -p "$PID" 2>/dev/null
+        chrt -f -p 99 "$PID" 2>/dev/null
+        # Pin to big cores (CPU4-7 on SM6375)
+        taskset -p f0 "$PID" 2>/dev/null  # 0b11110000 = CPU4-7
+        # cgroup top-app
+        echo "$PID" > /dev/cpuset/top-app/tasks 2>/dev/null
+        echo "$PID" > /dev/stune/top-app/tasks 2>/dev/null
+        log "Optimized: $PKGNAME (PID $PID)"
+    fi
+}
+
+# Skip the boot tuning sequence when sourced for unit testing.
+if [ "${FOGOS_LIB_ONLY:-0}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+# Wait for system to be fully up
+sleep 8
 
 log "=========================================================="
 log " FogOS Extreme Gaming Kernel v2.0 - ULTRA Mode Active"
@@ -265,23 +289,7 @@ log "Touch: Max rate + big-core IRQ affinity set ✓"
 
 log "Gaming: Applying BGMI/PUBG process optimizations..."
 
-# Function to optimize a running game process
-optimize_game() {
-    local PKGNAME="$1"
-    local PID=$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)
-    if [ -n "$PID" ]; then
-        # Highest scheduling priority
-        renice -n -20 -p "$PID" 2>/dev/null
-        chrt -f -p 99 "$PID" 2>/dev/null
-        # Pin to big cores (CPU4-7 on SM6375)
-        taskset -p f0 "$PID" 2>/dev/null  # 0b11110000 = CPU4-7
-        # cgroup top-app
-        echo "$PID" > /dev/cpuset/top-app/tasks 2>/dev/null
-        echo "$PID" > /dev/stune/top-app/tasks 2>/dev/null
-        log "Optimized: $PKGNAME (PID $PID)"
-    fi
-}
-
+# optimize_game() is defined near the top of this script.
 # BGMI package
 optimize_game "com.pubg.imobile"
 # PUBG Mobile package
