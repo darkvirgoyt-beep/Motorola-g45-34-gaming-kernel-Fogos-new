@@ -236,10 +236,9 @@ build_kernel() {
   make "${MAKE_FLAGS[@]}" Image Image.gz Image.lz4 2>&1 || \
     make "${MAKE_FLAGS[@]}" Image 2>&1
 
-  # Step 4: Build DTBs
+  # Step 4: Build DTBs (non-fatal — Moto overlay check may fail in CI)
   log_info "Building device tree blobs..."
-  make "${MAKE_FLAGS[@]}" dtbs 2>/dev/null || \
-    log_warn "DTB build returned error — continuing anyway."
+  make "${MAKE_FLAGS[@]}" dtbs 2>&1 || true
 
   # Step 5: Verify output
   KERNEL_OUT=""
