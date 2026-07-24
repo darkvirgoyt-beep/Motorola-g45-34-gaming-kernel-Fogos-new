@@ -208,15 +208,26 @@ apply_vdso32_fix() {
   local VDSO_MK="${KERNEL_DIR}/arch/arm/vdso/Makefile"
   if [ -f "$VDSO_MK" ] && ! grep -q "zero-call-used-regs" "$VDSO_MK"; then
     log_info "Applying VDSO32 Clang 19 compatibility fix..."
-    sed -i 's/^ccflags-y :=.*/# FogOS clang fix: strip -fzero-call-used-regs\nKBUILD_CFLAGS := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))\n\0/' \
-      "$VDSO_MK" 2>/dev/null || true
+    if ! sed -i 's/^ccflags-y :=.*/# FogOS clang fix: strip -fzero-call-used-regs\nKBUILD_CFLAGS := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))\n\0/' \
+      "$VDSO_MK"; then
+      log_warn "VDSO32 sed (ccflags-y) failed — trying prepend approach."
+    fi
 
     # Explicit approach: prepend the filter line
     if ! grep -q "filter-out -fzero-call-used-regs" "$VDSO_MK"; then
-      sed -i '1a # FogOS: strip clang 19 flag incompatible with ARM32 VDSO\nKBUILD_CFLAGS := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))\nccflags-y := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))' \
-        "$VDSO_MK" 2>/dev/null || true
+      if ! sed -i '1a # FogOS: strip clang 19 flag incompatible with ARM32 VDSO\nKBUILD_CFLAGS := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))\nccflags-y := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))' \
+        "$VDSO_MK"; then
+        log_warn "VDSO32 sed (prepend) failed."
+      fi
     fi
-    log_success "VDSO32 fix applied."
+
+    # Verify the patch actually landed; warn (non-fatal) if not so the failure
+    # is visible instead of surfacing later as a cryptic ARM32 VDSO build error.
+    if grep -q "filter-out -fzero-call-used-regs" "$VDSO_MK"; then
+      log_success "VDSO32 fix applied."
+    else
+      log_warn "VDSO32 fix could not be applied to ${VDSO_MK}; ARM32 VDSO build may fail on Clang 19+."
+    fi
   fi
 }
 
@@ -285,13 +296,22 @@ build_kernel() {
   fi
 
   # Step 3: Compile
+  # Try the compressed targets first; if that fails, fall back to the plain
+  # Image target.  A failure of the fallback is fatal (set -e aborts), so a
+  # genuine compile error is never silently ignored.
   log_info "Compiling kernel (${JOBS} jobs)..."
-  make "${MAKE_FLAGS[@]}" Image Image.gz Image.lz4 2>&1 || \
-    make "${MAKE_FLAGS[@]}" Image 2>&1
+  if ! make "${MAKE_FLAGS[@]}" Image Image.gz Image.lz4; then
+    log_warn "Compressed image targets failed — retrying plain Image target..."
+    make "${MAKE_FLAGS[@]}" Image
+  fi
 
-  # Step 4: Build DTBs (non-fatal — Moto overlay check may fail in CI)
+  # Step 4: Build DTBs (non-fatal — Moto overlay check may fail in CI).
+  # Kept non-fatal on purpose, but surface a warning so the failure is visible
+  # in the log instead of being silently swallowed.
   log_info "Building device tree blobs..."
-  make "${MAKE_FLAGS[@]}" dtbs 2>&1 || true
+  if ! make "${MAKE_FLAGS[@]}" dtbs; then
+    log_warn "DTB build failed (non-fatal) — continuing without freshly built DTBs."
+  fi
 
   # Step 5: Verify output
   KERNEL_OUT=""
@@ -317,13 +337,15 @@ package_zip() {
   mkdir -p "${ZIP_DIR}"
 
   # Copy kernel image(s) into anykernel dir
+  IMG_COPIED=false
   for img in \
     "${OUT_DIR}/arch/arm64/boot/Image" \
     "${OUT_DIR}/arch/arm64/boot/Image.gz" \
     "${OUT_DIR}/arch/arm64/boot/Image.lz4" \
     "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb"; do
-    [ -f "$img" ] && cp "$img" "${ANYKERNEL_DIR}/" && break
+    [ -f "$img" ] && cp "$img" "${ANYKERNEL_DIR}/" && { IMG_COPIED=true; break; }
   done
+  $IMG_COPIED || log_error "No kernel image found to package into the ZIP."
 
   # Copy DTBs
   mkdir -p "${ANYKERNEL_DIR}/dtbs"
@@ -331,14 +353,21 @@ package_zip() {
        \( -name "*holi*" -o -name "*sm6375*" -o -name "*moto*" \) \
        -exec cp {} "${ANYKERNEL_DIR}/dtbs/" \; 2>/dev/null || true
 
-  # Build ZIP
+  # Build ZIP. Try the curated file list first; if that fails, fall back to
+  # zipping the whole anykernel dir.  stderr is kept (not sent to /dev/null) so
+  # a genuine failure is visible in the log rather than silently swallowed.
   cd "${ANYKERNEL_DIR}"
-  zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
-    anykernel.sh fogos_gaming_init.sh META-INF \
-    dtbs Image* tools 2>/dev/null || \
-  zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . --exclude="*.log" 2>/dev/null
+  if ! zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
+      anykernel.sh fogos_gaming_init.sh META-INF \
+      dtbs Image* tools; then
+    log_warn "Curated ZIP failed — falling back to zipping full anykernel dir."
+    zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . --exclude="*.log"
+  fi
 
   cd "${KERNEL_DIR}"
+
+  # Confirm the ZIP was actually produced before reporting success.
+  [ -s "${ZIP_DIR}/${ZIP_NAME}" ] || log_error "ZIP packaging failed — ${ZIP_DIR}/${ZIP_NAME} not created."
   log_success "ZIP: ${ZIP_DIR}/${ZIP_NAME}"
 }
 
