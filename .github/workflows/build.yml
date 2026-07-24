@@ -18,6 +18,13 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
 
+    # Run every `run:` step with `set -eo pipefail` so a failure anywhere in a
+    # pipeline (e.g. `make ... | tee build.log`) fails the job instead of being
+    # masked by the exit status of the last command in the pipe.
+    defaults:
+      run:
+        shell: bash
+
     env:
       ARCH: arm64
       SUBARCH: arm64
