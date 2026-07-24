@@ -1,7 +1,12 @@
 #include <linux/mm.h>
-#include <linux/pgtable.h>
 #include <linux/printk.h>
 #include <linux/preempt.h>
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+#include <linux/pgtable.h>
+#else
+#include <asm/pgtable.h>
+#endif
 #include <asm/current.h>
 
 static bool try_set_access_flag(unsigned long addr)

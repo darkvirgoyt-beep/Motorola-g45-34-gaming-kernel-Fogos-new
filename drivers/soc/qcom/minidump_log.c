@@ -1148,6 +1148,7 @@ static bool md_unregister_memory_dump(char *name)
 	return true;
 }
 
+#if defined(CONFIG_PAGE_OWNER) || defined(CONFIG_SLUB_DEBUG)
 static void update_dump_size(char *name, size_t size,
 		char **addr, size_t *dump_size)
 {
@@ -1185,6 +1186,7 @@ static void update_dump_size(char *name, size_t size,
 		pr_err_ratelimited("Failed to unregister %s Minidump\n", name);
 	}
 }
+#endif
 
 #ifdef CONFIG_PAGE_OWNER
 static DEFINE_MUTEX(page_owner_dump_size_lock);
