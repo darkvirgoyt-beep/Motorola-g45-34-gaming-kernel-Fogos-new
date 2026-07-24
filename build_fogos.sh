@@ -187,6 +187,12 @@ apply_vdso32_fix() {
 do_clean() {
   log_info "Cleaning output directory..."
   rm -rf "${OUT_DIR}"
+  # Always scrub generated files from the source root so the kernel's
+  # outputmakefile check (triggered by O=out builds) never fails.
+  # This catches .config left by merge_config.sh and other stale files.
+  log_info "Cleaning source tree (mrproper)..."
+  make -C "${KERNEL_DIR}" mrproper 2>/dev/null || \
+    { rm -f "${KERNEL_DIR}/.config"; rm -rf "${KERNEL_DIR}/include/generated"; }
   log_success "Clean done."
 }
 
@@ -221,8 +227,10 @@ build_kernel() {
     # Use kernel's merge_config.sh
     MERGE_SCRIPT="${KERNEL_DIR}/scripts/kconfig/merge_config.sh"
     if [ -f "$MERGE_SCRIPT" ]; then
+      # -O "${OUT_DIR}" keeps the merged .config inside out/ so the source
+      # root stays clean (required for O=out builds; see outputmakefile check).
       ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" \
-        bash "$MERGE_SCRIPT" -m "${OUT_DIR}/.config" "${GAMING_FRAGMENT}"
+        bash "$MERGE_SCRIPT" -m -O "${OUT_DIR}" "${OUT_DIR}/.config" "${GAMING_FRAGMENT}"
       # Regenerate from merged .config
       make "${MAKE_FLAGS[@]}" olddefconfig
     else
