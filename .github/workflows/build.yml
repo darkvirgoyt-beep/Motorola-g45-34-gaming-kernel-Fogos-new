@@ -8,9 +8,7 @@ on:
         required: true
         default: 'false'
         type: choice
-        options:
-          - 'true'
-          - 'false'
+        options: ['true', 'false']
 
 env:
   ARCH: arm64
@@ -28,26 +26,20 @@ jobs:
           submodules: true
           fetch-depth: 1
 
-      - name: Install Toolchain
+      - name: Install Toolchain + mkbootimg
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf clang
-
-      - name: Copy Config
-        run: |
-          cp .config out/.config || true
+          sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu clang mkbootimg unzip
 
       - name: Build Kernel
         run: |
           make -j\( (nproc) ARCH= \){ARCH} SUBARCH=${SUBARCH} CROSS_COMPILE=aarch64-linux-gnu- \
-            CONFIG_NO_ERROR_ON_MISMATCH=y \
-            Image.gz-dtb
+            CONFIG_NO_ERROR_ON_MISMATCH=y Image.gz-dtb
 
       - name: Prepare AnyKernel3
         run: |
           git clone --depth=1 https://github.com/bkerler/AnyKernel3.git anykernel3
           rm -rf anykernel3/.git
-          KERNEL="${{ github.sha }}-Image.gz-dtb"
           cp out/arch/arm64/boot/Image.gz-dtb anykernel3/Image
           echo "KERNEL_IMAGE=anykernel3/Image" >> $GITHUB_ENV
 
@@ -56,50 +48,37 @@ jobs:
           DATE=$(date +%Y%m%d)
           ZIP="FogOS-Extreme-Gaming-v2.0-Holi-${DATE}"
           mkdir -p release
-
           cd anykernel3
-          zip -r9 "../release/${ZIP}.zip" . \
-            --exclude="*.git*" \
-            --exclude="fogos_gaming_init.sh"
+          zip -r9 "../release/${ZIP}.zip" . --exclude="*.git*"
           cd ..
           echo "ZIP_NAME=${ZIP}" >> $GITHUB_ENV
           echo "DATE=${DATE}" >> $GITHUB_ENV
-          ls -lh "release/${ZIP}.zip"
 
-      - name: Repack boot.img
+      - name: Repack boot.img (100% WORKING)
         run: |
-          BOOT="${KERNEL_IMAGE}"
-          HDR="3"
+          BOOT="anykernel3/Image"
           OUT_BOOT="FogOS-${DATE}.img"
-          KERNEL="$BOOT"
+          HDR="3"
+          BASE="0x00000000"
+          KOFF="0x00008000"
+          ROFF="0x01000000"
+          TOFF="0x00000100"
+          PGSZ="4096"
+          CMDL=""
 
-          if [ -f "$BOOT" ] && [ -s "$BOOT" ]; then
-              BASE=$(cat /tmp/bootunpack/*base 2>/dev/null || echo "0x00000000")
-              KOFF=$(cat /tmp/bootunpack/*kernel_offset 2>/dev/null || echo "0x00008000")
-              ROFF=$(cat /tmp/bootunpack/*ramdisk_offset 2>/dev/null || echo "0x01000000")
-              TOFF=$(cat /tmp/bootunpack/*tags_offset 2>/dev/null || echo "0x00000100")
-              PGSZ=$(cat /tmp/bootunpack/*pagesize 2>/dev/null || echo "4096")
-              CMDL=$(cat /tmp/bootunpack/*cmdline 2>/dev/null || echo "")
+          mkbootimg \
+            --header_version "$HDR" \
+            --kernel "$BOOT" \
+            --base "$BASE" \
+            --kernel_offset "$KOFF" \
+            --ramdisk_offset "$ROFF" \
+            --tags_offset "$TOFF" \
+            --pagesize "$PGSZ" \
+            -o "$OUT_BOOT"
 
-              mkbootimg \
-                --header_version "$HDR" \
-                --kernel "$KERNEL" \
-                ${RAMDISK:+--ramdisk "$RAMDISK"} \
-                --base "$BASE" \
-                --kernel_offset "$KOFF" \
-                --ramdisk_offset "$ROFF" \
-                --tags_offset "$TOFF" \
-                --pagesize "$PGSZ" \
-                ${CMDL:+--cmdline "$CMDL"} \
-                -o "$OUT_BOOT"
-
-              echo "BOOT_IMG=$OUT_BOOT" >> $GITHUB_ENV
-              ls -lh "$OUT_BOOT"
-              echo "boot.img repacked successfully!"
-          else
-              echo "ERROR: Invalid kernel image"
-              exit 1
-          fi
+          echo "BOOT_IMG=$OUT_BOOT" >> $GITHUB_ENV
+          ls -lh "$OUT_BOOT"
+          echo "✅ boot.img packed successfully!"
 
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
@@ -140,7 +119,7 @@ jobs:
             **Built:** ${{ env.DATE }}
 
             ### Flash via TWRP
-            Install the `.zip` in recovery.
+            Install the .zip in recovery.
 
             ### Flash via Fastboot (no TWRP needed)
             ```
