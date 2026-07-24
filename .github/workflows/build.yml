@@ -1,181 +1,61 @@
-name: FogOS Extreme Gaming Kernel — Build & Release
+name: FogOS Extreme Gaming - Build & Release
 
 on:
-  push:
-    branches: [ sixteen-qpr2, main ]
   workflow_dispatch:
     inputs:
       release:
-        description: 'Create GitHub Release?'
-        required: false
+        description: 'Create GitHub Release'
+        required: true
         default: 'false'
         type: choice
-        options: ['true', 'false']
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  ARCH: arm64
+  SUBARCH: arm64
+  KBUILD_BUILD_USER: prince
+  KBUILD_BUILD_HOST: virgoyt707
 
 jobs:
   build:
-    name: Build Kernel
-    runs-on: ubuntu-22.04
-    timeout-minutes: 120
-
-    env:
-      ARCH: arm64
-      SUBARCH: arm64
-      KBUILD_BUILD_USER: prince
-      KBUILD_BUILD_HOST: virgoyt707
-
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout source
+      - name: Checkout Kernel
         uses: actions/checkout@v4
         with:
+          submodules: true
           fetch-depth: 1
 
-      - name: Install dependencies
+      - name: Install Toolchain
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y \
-            bc bison build-essential ccache curl flex git \
-            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            libssl-dev libelf-dev libncurses-dev \
-            clang llvm lld \
-            python3 python-is-python3 \
-            zip unzip cpio rsync dwarves
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf clang
 
-      - name: Show compiler version
+      - name: Copy Config
         run: |
-          clang --version
-          ld.lld --version
-          aarch64-linux-gnu-gcc --version | head -1
+          cp .config out/.config || true
 
-      - name: Generate defconfig
+      - name: Build Kernel
         run: |
-          mkdir -p out
-          make O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            LLVM=1 LLVM_IAS=1 \
-            vendor/holi-qgki_defconfig
+          make -j\( (nproc) ARCH= \){ARCH} SUBARCH=${SUBARCH} CROSS_COMPILE=aarch64-linux-gnu- \
+            CONFIG_NO_ERROR_ON_MISMATCH=y \
+            Image.gz-dtb
 
-      - name: Merge gaming config fragment
+      - name: Prepare AnyKernel3
         run: |
-          scripts/kconfig/merge_config.sh \
-            -m -O out \
-            out/.config \
-            arch/arm64/configs/vendor/fogos_gaming.config
-          make O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            LLVM=1 LLVM_IAS=1 \
-            olddefconfig
-
-      - name: Build kernel
-        run: |
-          make -j$(nproc) \
-            O=out \
-            ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            LLVM=1 LLVM_IAS=1 \
-            LD=ld.lld \
-            LOCALVERSION="-FogOS-v2.0" \
-            Image 2>&1 | tee build.log
-
-      - name: Verify kernel image
-        run: |
-          BOOT=out/arch/arm64/boot
-          if [ -f "$BOOT/Image.gz" ]; then
-            echo "KERNEL_IMAGE=$BOOT/Image.gz" >> $GITHUB_ENV
-            ls -lh "$BOOT/Image.gz"
-          else
-            echo "ERROR: No kernel image found!"
-            ls -lh "$BOOT/"
-            exit 1
-          fi
-          echo "DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
-
-      - name: Repack boot.img
-        run: |
-          pip3 install mkbootimg 2>&1 | tail -3
-          KERNEL="${{ env.KERNEL_IMAGE }}"
-          STOCK="stock/boot.img"
-          mkdir -p release
-
-          if [ ! -f "$STOCK" ]; then
-            echo "No stock/boot.img — skipping boot.img repack"
-            exit 0
-          fi
-
-          echo "Unpacking stock boot.img..."
-          mkdir -p /tmp/bootunpack
-          unpackbootimg --input "$STOCK" --output /tmp/bootunpack/ 2>&1
-
-          echo "Contents of unpack dir:"
-          ls -lh /tmp/bootunpack/
-
-          # Header version
-          HDR=$(cat /tmp/bootunpack/*header_version 2>/dev/null || echo "3")
-          RAMDISK=$(ls /tmp/bootunpack/*ramdisk* 2>/dev/null | head -1 || echo "")
-          echo "Header version: $HDR"
-          echo "Ramdisk: $RAMDISK"
-
-          OUT_BOOT="release/FogOS-Extreme-Gaming-v2.0-boot-${{ env.DATE }}.img"
-
-          if [ "$HDR" = "3" ] || [ "$HDR" = "4" ]; then
-            OS_VER=$(cat /tmp/bootunpack/*os_version 2>/dev/null || echo "")
-            OS_PATCH=$(cat /tmp/bootunpack/*os_patch_level 2>/dev/null || echo "")
-            mkbootimg \
-              --header_version "$HDR" \
-              --kernel "$KERNEL" \
-              ${RAMDISK:+--ramdisk "$RAMDISK"} \
-              ${OS_VER:+--os_version "$OS_VER"} \
-              ${OS_PATCH:+--os_patch_level "$OS_PATCH"} \
-              -o "$OUT_BOOT"
-          else
-            BASE=$(cat /tmp/bootunpack/*base 2>/dev/null || echo "0x00000000")
-            KOFF=$(cat /tmp/bootunpack/*kernel_offset 2>/dev/null || echo "0x00008000")
-            ROFF=$(cat /tmp/bootunpack/*ramdisk_offset 2>/dev/null || echo "0x01000000")
-            TOFF=$(cat /tmp/bootunpack/*tags_offset 2>/dev/null || echo "0x00000100")
-            PGSZ=$(cat /tmp/bootunpack/*pagesize 2>/dev/null || echo "4096")
-            CMDL=$(cat /tmp/bootunpack/*cmdline 2>/dev/null || echo "")
-            mkbootimg \
-              --header_version "$HDR" \
-              --kernel "$KERNEL" \
-              ${RAMDISK:+--ramdisk "$RAMDISK"} \
-              --base "$BASE" \
-              --kernel_offset "$KOFF" \
-              --ramdisk_offset "$ROFF" \
-              --tags_offset "$TOFF" \
-              --pagesize "$PGSZ" \
-              ${CMDL:+--cmdline "$CMDL"} \
-              -o "$OUT_BOOT"
-          fi
-          echo "BOOT_IMG=$OUT_BOOT" >> $GITHUB_ENV
-          ls -lh "$OUT_BOOT"
-          echo "boot.img repacked successfully!"
+          git clone --depth=1 https://github.com/bkerler/AnyKernel3.git anykernel3
+          rm -rf anykernel3/.git
+          KERNEL="${{ github.sha }}-Image.gz-dtb"
+          cp out/arch/arm64/boot/Image.gz-dtb anykernel3/Image
+          echo "KERNEL_IMAGE=anykernel3/Image" >> $GITHUB_ENV
 
       - name: Package AnyKernel3 ZIP
         run: |
-          KERNEL="${{ env.KERNEL_IMAGE }}"
-          DATE="${{ env.DATE }}"
+          DATE=$(date +%Y%m%d)
           ZIP="FogOS-Extreme-Gaming-v2.0-Holi-${DATE}"
           mkdir -p release
-
-          # Copy kernel into anykernel3
-          cp "$KERNEL" anykernel3/Image
-
-          # Gaming init script
-          mkdir -p anykernel3/system/etc/init.d
-          cp anykernel3/fogos_gaming_init.sh \
-             anykernel3/system/etc/init.d/99-fogos-gaming
-          chmod 755 anykernel3/system/etc/init.d/99-fogos-gaming
 
           cd anykernel3
           zip -r9 "../release/${ZIP}.zip" . \
@@ -183,7 +63,43 @@ jobs:
             --exclude="fogos_gaming_init.sh"
           cd ..
           echo "ZIP_NAME=${ZIP}" >> $GITHUB_ENV
+          echo "DATE=${DATE}" >> $GITHUB_ENV
           ls -lh "release/${ZIP}.zip"
+
+      - name: Repack boot.img
+        run: |
+          BOOT="${KERNEL_IMAGE}"
+          HDR="3"
+          OUT_BOOT="FogOS-${DATE}.img"
+          KERNEL="$BOOT"
+
+          if [ -f "$BOOT" ] && [ -s "$BOOT" ]; then
+              BASE=$(cat /tmp/bootunpack/*base 2>/dev/null || echo "0x00000000")
+              KOFF=$(cat /tmp/bootunpack/*kernel_offset 2>/dev/null || echo "0x00008000")
+              ROFF=$(cat /tmp/bootunpack/*ramdisk_offset 2>/dev/null || echo "0x01000000")
+              TOFF=$(cat /tmp/bootunpack/*tags_offset 2>/dev/null || echo "0x00000100")
+              PGSZ=$(cat /tmp/bootunpack/*pagesize 2>/dev/null || echo "4096")
+              CMDL=$(cat /tmp/bootunpack/*cmdline 2>/dev/null || echo "")
+
+              mkbootimg \
+                --header_version "$HDR" \
+                --kernel "$KERNEL" \
+                ${RAMDISK:+--ramdisk "$RAMDISK"} \
+                --base "$BASE" \
+                --kernel_offset "$KOFF" \
+                --ramdisk_offset "$ROFF" \
+                --tags_offset "$TOFF" \
+                --pagesize "$PGSZ" \
+                ${CMDL:+--cmdline "$CMDL"} \
+                -o "$OUT_BOOT"
+
+              echo "BOOT_IMG=$OUT_BOOT" >> $GITHUB_ENV
+              ls -lh "$OUT_BOOT"
+              echo "boot.img repacked successfully!"
+          else
+              echo "ERROR: Invalid kernel image"
+              exit 1
+          fi
 
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
