@@ -20,10 +20,16 @@ TAG="FogOS-Game"
 LOG="/data/local/fogos_game.log"
 ACTIVE_LOG="/data/local/fogos_active_game.txt"
 
-GAMES="com.pubg.imobile com.tencent.ig com.dts.freefireth"
-
 log() { echo "[$TAG][$(date '+%H:%M:%S')] $1" >> "$LOG" 2>/dev/null; }
-write() { echo "$1" > "$2" 2>/dev/null; }
+
+# Load shared FogOS runtime helpers (CPU/GPU/boost/game-list utilities).
+for FOG_LIB in \
+    "${FOG_LIB:-}" \
+    "$(dirname "$0")/fogos_lib.sh" \
+    /system/etc/fogos/fogos_lib.sh \
+    /system/bin/fogos_lib.sh; do
+    [ -n "$FOG_LIB" ] && [ -f "$FOG_LIB" ] && { . "$FOG_LIB"; break; }
+done
 
 # Truncate log if too large
 [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 524288 ] && \
@@ -37,45 +43,30 @@ apply_game_profile() {
   log "=== GAME START: $game ==="
 
   # --- CPU: Performance + lock big cores ---
-  for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-    write "performance" "$gov"
-  done
-  for pol in /sys/devices/system/cpu/cpufreq/policy*; do
-    max=$(cat "$pol/cpuinfo_max_freq" 2>/dev/null)
-    [ -n "$max" ] && write "$max" "$pol/scaling_max_freq"
-    [ -n "$max" ] && write "$max" "$pol/scaling_min_freq"
-  done
+  fog_cpu_lock_max
 
   # Disable deep idle on big cores (CPU4-7) for minimal wake latency
-  for cpu in 4 5 6 7; do
-    for s in /sys/devices/system/cpu/cpu${cpu}/cpuidle/state*/disable; do
-      depth=$(dirname "$s" | grep -o '[0-9]*$')
-      [ -n "$depth" ] && [ "$depth" -ge 2 ] && write "1" "$s"
-    done
-  done
+  fog_cpu_deep_idle 1
 
   # WALT: force max boost
-  write "2" /proc/sys/kernel/sched_boost 2>/dev/null
-  write "1024" /proc/sys/kernel/sched_util_clamp_min 2>/dev/null
+  fog_write "2" /proc/sys/kernel/sched_boost 2>/dev/null
+  fog_write "1024" /proc/sys/kernel/sched_util_clamp_min 2>/dev/null
 
   # uclamp: boost foreground
-  write "100" /dev/stune/top-app/schedtune.boost 2>/dev/null
-  write "1"   /dev/stune/top-app/schedtune.prefer_idle 2>/dev/null
+  fog_write "100" /dev/stune/top-app/schedtune.boost 2>/dev/null
+  fog_write "1"   /dev/stune/top-app/schedtune.prefer_idle 2>/dev/null
 
   # Input boost: big cores on every touch
-  write "1" /sys/module/cpu_boost/parameters/input_boost_enabled 2>/dev/null
-  write "0:0 1:0 2:0 3:0 4:9999999 5:9999999 6:9999999 7:9999999" \
-        /sys/module/cpu_boost/parameters/input_boost_freq 2>/dev/null
-  write "2000" /sys/module/cpu_boost/parameters/input_boost_ms 2>/dev/null
+  fog_cpu_input_boost
 
   # --- GPU: Lock to max ---
   GPU_BASE="/sys/class/kgsl/kgsl-3d0"
   max_gpu=$(cat "$GPU_BASE/devfreq/max_freq" 2>/dev/null || \
             cat "$GPU_BASE/gpuclk" 2>/dev/null)
-  [ -n "$max_gpu" ] && write "$max_gpu" "$GPU_BASE/devfreq/min_freq"
-  write "0"  "$GPU_BASE/max_pwrlevel" 2>/dev/null
-  write "0"  "$GPU_BASE/min_pwrlevel" 2>/dev/null
-  write "1"  "$GPU_BASE/force_no_nap" 2>/dev/null
+  [ -n "$max_gpu" ] && fog_write "$max_gpu" "$GPU_BASE/devfreq/min_freq"
+  fog_write "0"  "$GPU_BASE/max_pwrlevel" 2>/dev/null
+  fog_write "0"  "$GPU_BASE/min_pwrlevel" 2>/dev/null
+  fog_write "1"  "$GPU_BASE/force_no_nap" 2>/dev/null
 
   # --- Memory: gaming VM tuning ---
   sysctl -w vm.swappiness=20        2>/dev/null
@@ -99,11 +90,7 @@ apply_game_profile() {
   # --- Pin game process to big cores (CPU4-7) ---
   game_pid=$(pidof "$game" 2>/dev/null | awk '{print $1}')
   if [ -n "$game_pid" ]; then
-    taskset -p 0xf0 "$game_pid" 2>/dev/null
-    renice -n -20 -p "$game_pid" 2>/dev/null
-    # Add to top-app cgroup
-    write "$game_pid" /dev/cpuctl/top-app/tasks 2>/dev/null
-    write "$game_pid" /dev/cpuset/top-app/tasks 2>/dev/null
+    fog_pin_big_cores "$game_pid" -20
     log "Pinned PID $game_pid to CPU4-7, priority -20"
   fi
 
@@ -117,31 +104,19 @@ apply_game_profile() {
 apply_normal_profile() {
   log "=== Returning to NORMAL balanced profile ==="
 
-  # --- CPU: schedutil governor ---
-  for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-    write "schedutil" "$gov"
-  done
-  for pol in /sys/devices/system/cpu/cpufreq/policy*; do
-    min=$(cat "$pol/cpuinfo_min_freq" 2>/dev/null)
-    max=$(cat "$pol/cpuinfo_max_freq" 2>/dev/null)
-    [ -n "$min" ] && write "$min" "$pol/scaling_min_freq"
-    [ -n "$max" ] && write "$max" "$pol/scaling_max_freq"
-  done
+  # --- CPU: schedutil governor + open frequency range ---
+  fog_cpu_unlock
 
   # Re-enable idle states
-  for cpu in 4 5 6 7; do
-    for s in /sys/devices/system/cpu/cpu${cpu}/cpuidle/state*/disable; do
-      write "0" "$s"
-    done
-  done
+  fog_cpu_deep_idle 0
 
-  write "0" /proc/sys/kernel/sched_boost 2>/dev/null
+  fog_write "0" /proc/sys/kernel/sched_boost 2>/dev/null
 
   # --- GPU: auto TZ governor ---
   GPU_BASE="/sys/class/kgsl/kgsl-3d0"
-  write "0"   "$GPU_BASE/force_no_nap" 2>/dev/null
-  write "6"   "$GPU_BASE/min_pwrlevel" 2>/dev/null
-  write "0"   "$GPU_BASE/max_pwrlevel" 2>/dev/null
+  fog_write "0"   "$GPU_BASE/force_no_nap" 2>/dev/null
+  fog_write "6"   "$GPU_BASE/min_pwrlevel" 2>/dev/null
+  fog_write "0"   "$GPU_BASE/max_pwrlevel" 2>/dev/null
 
   # --- Memory: normal balanced ---
   sysctl -w vm.swappiness=60          2>/dev/null
@@ -154,7 +129,7 @@ apply_normal_profile() {
   iwconfig wlan0 power on 2>/dev/null || true
 
   # Restore schedtune
-  write "0" /dev/stune/top-app/schedtune.boost 2>/dev/null
+  fog_write "0" /dev/stune/top-app/schedtune.boost 2>/dev/null
 
   rm -f "$ACTIVE_LOG"
   log "=== NORMAL PROFILE ACTIVE ==="
@@ -190,13 +165,7 @@ get_foreground_app() {
 ###############################################################################
 # IS_GAME: check if a package is in our game list
 ###############################################################################
-is_game() {
-  local pkg="$1"
-  for game in $GAMES; do
-    [ "$pkg" = "$game" ] && return 0
-  done
-  return 1
-}
+is_game() { fog_is_game "$1"; }
 
 ###############################################################################
 # MAIN MONITOR LOOP
@@ -220,7 +189,7 @@ while true; do
       game_pid=$(pidof "$CURRENT_PKG" 2>/dev/null | awk '{print $1}')
       if [ -n "$game_pid" ]; then
         taskset -p 0xf0 "$game_pid" 2>/dev/null || true
-        write "$game_pid" /dev/cpuctl/top-app/tasks 2>/dev/null || true
+        fog_write "$game_pid" /dev/cpuctl/top-app/tasks 2>/dev/null || true
       fi
     fi
   else
