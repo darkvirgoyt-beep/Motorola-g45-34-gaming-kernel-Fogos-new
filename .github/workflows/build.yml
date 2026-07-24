@@ -91,15 +91,12 @@ jobs:
       - name: Verify kernel image
         run: |
           BOOT=out/arch/arm64/boot
-          if [ -f "$BOOT/Image" ]; then
-            echo "KERNEL_IMAGE=$BOOT/Image" >> $GITHUB_ENV
-            ls -lh "$BOOT/Image"
-          elif [ -f "$BOOT/Image.gz" ]; then
+          if [ -f "$BOOT/Image.gz" ]; then
             echo "KERNEL_IMAGE=$BOOT/Image.gz" >> $GITHUB_ENV
             ls -lh "$BOOT/Image.gz"
           else
             echo "ERROR: No kernel image found!"
-            tail -100 build.log
+            ls -lh "$BOOT/"
             exit 1
           fi
           echo "DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
