@@ -3,6 +3,8 @@ name: FogOS Extreme Gaming Kernel — Build & Release
 on:
   push:
     branches: [ sixteen-qpr2, main ]
+  pull_request:
+    branches: [ sixteen-qpr2, main ]
   workflow_dispatch:
     inputs:
       release:
