@@ -28,57 +28,64 @@ jobs:
 
       - name: Install Toolchain + mkbootimg
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev make gcc-aarch64-linux-gnu clang mkbootimg unzip
+          sudo apt-get update -qq
+          sudo apt-get install -y bc bison flex libssl-dev make \
+            gcc-aarch64-linux-gnu clang unzip python3-pip
+          pip3 install mkbootimg
+
+      - name: Set Date
+        run: echo "DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
 
       - name: Build Kernel
         run: |
-          make -j\( (nproc) ARCH= \){ARCH} SUBARCH=${SUBARCH} CROSS_COMPILE=aarch64-linux-gnu- \
-            CONFIG_NO_ERROR_ON_MISMATCH=y Image.gz-dtb
+          make -j$(nproc) \
+            ARCH=${ARCH} \
+            SUBARCH=${SUBARCH} \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CONFIG_NO_ERROR_ON_MISMATCH=y \
+            Image.gz-dtb 2>&1 | tee build.log
 
-      - name: Prepare AnyKernel3
+      - name: Verify Kernel Output
+        run: |
+          KERNEL=out/arch/arm64/boot/Image.gz-dtb
+          if [ ! -f "$KERNEL" ]; then
+            echo "❌ Kernel not found at $KERNEL"
+            echo "Searching for kernel outputs:"
+            find . -name "Image*" -o -name "zImage*" 2>/dev/null | head -20
+            exit 1
+          fi
+          echo "✅ Kernel found: $KERNEL"
+          ls -lh "$KERNEL"
+          echo "KERNEL_PATH=$KERNEL" >> $GITHUB_ENV
+
+      - name: Repack boot.img
+        run: |
+          mkdir -p release
+
+          mkbootimg \
+            --header_version 3 \
+            --kernel "${KERNEL_PATH}" \
+            --base 0x00000000 \
+            --kernel_offset 0x00008000 \
+            --ramdisk_offset 0x01000000 \
+            --tags_offset 0x00000100 \
+            --pagesize 4096 \
+            -o "release/FogOS-${DATE}-boot.img"
+
+          ls -lh "release/FogOS-${DATE}-boot.img"
+          echo "✅ boot.img packed!"
+          echo "BOOT_IMG=release/FogOS-${DATE}-boot.img" >> $GITHUB_ENV
+
+      - name: Prepare AnyKernel3 ZIP
         run: |
           git clone --depth=1 https://github.com/bkerler/AnyKernel3.git anykernel3
           rm -rf anykernel3/.git
-          cp out/arch/arm64/boot/Image.gz-dtb anykernel3/Image
-          echo "KERNEL_IMAGE=anykernel3/Image" >> $GITHUB_ENV
-
-      - name: Package AnyKernel3 ZIP
-        run: |
-          DATE=$(date +%Y%m%d)
-          ZIP="FogOS-Extreme-Gaming-v2.0-Holi-${DATE}"
-          mkdir -p release
+          cp "${KERNEL_PATH}" anykernel3/Image
+          ZIP_NAME="FogOS-Extreme-Gaming-v2.0-Holi-${DATE}"
           cd anykernel3
-          zip -r9 "../release/${ZIP}.zip" . --exclude="*.git*"
+          zip -r9 "../release/${ZIP_NAME}.zip" . --exclude="*.git*"
           cd ..
-          echo "ZIP_NAME=${ZIP}" >> $GITHUB_ENV
-          echo "DATE=${DATE}" >> $GITHUB_ENV
-
-      - name: Repack boot.img (100% WORKING)
-        run: |
-          BOOT="anykernel3/Image"
-          OUT_BOOT="FogOS-${DATE}.img"
-          HDR="3"
-          BASE="0x00000000"
-          KOFF="0x00008000"
-          ROFF="0x01000000"
-          TOFF="0x00000100"
-          PGSZ="4096"
-          CMDL=""
-
-          mkbootimg \
-            --header_version "$HDR" \
-            --kernel "$BOOT" \
-            --base "$BASE" \
-            --kernel_offset "$KOFF" \
-            --ramdisk_offset "$ROFF" \
-            --tags_offset "$TOFF" \
-            --pagesize "$PGSZ" \
-            -o "$OUT_BOOT"
-
-          echo "BOOT_IMG=$OUT_BOOT" >> $GITHUB_ENV
-          ls -lh "$OUT_BOOT"
-          echo "✅ boot.img packed successfully!"
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
@@ -90,12 +97,11 @@ jobs:
 
       - name: Upload boot.img
         uses: actions/upload-artifact@v4
-        if: ${{ env.BOOT_IMG != '' }}
         with:
           name: FogOS-boot-img-${{ env.DATE }}
           path: ${{ env.BOOT_IMG }}
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Upload build log
         uses: actions/upload-artifact@v4
@@ -104,6 +110,7 @@ jobs:
           name: build-log-${{ env.DATE }}
           path: build.log
           retention-days: 7
+          if-no-files-found: warn
 
       - name: Create GitHub Release
         if: github.event.inputs.release == 'true'
@@ -114,22 +121,11 @@ jobs:
           body: |
             ## VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
             **Developer:** Prince · VirgoYT707
-            **Device:** Motorola G45 / G34 (SM6375 / Holi)
-            **Base:** Linux 5.4.302 · Android 16
+            **Device:** Motorola G45 / G34 (Snapdragon 6 Gen 3 / Fogos)
+            **Base:** Linux 5.4.x · Android 16
             **Built:** ${{ env.DATE }}
 
             ### Flash via TWRP
             Install the .zip in recovery.
 
             ### Flash via Fastboot (no TWRP needed)
-            ```
-            fastboot flash boot FogOS-*-boot-*.img
-            fastboot reboot
-            ```
-
-            *"I don't chase. I attract. I WIN."* — Prince, VirgoYT707
-          files: |
-            release/*.zip
-            release/*boot*.img
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
