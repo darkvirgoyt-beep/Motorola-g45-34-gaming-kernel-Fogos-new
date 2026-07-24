@@ -53,6 +53,13 @@ ui_print "  ╚═════════════════════�
 ui_print " ";
 ui_print "  Installing gaming init scripts...";
 
+# Install shared runtime library (sourced by the init + detector scripts)
+mkdir -p /system/etc/fogos 2>/dev/null;
+cp -f $INSTALLER/fogos_lib.sh /system/etc/fogos/fogos_lib.sh 2>/dev/null && \
+  chmod 644 /system/etc/fogos/fogos_lib.sh 2>/dev/null && \
+  ui_print "  ✓ Shared library installed: /system/etc/fogos/fogos_lib.sh" || \
+  ui_print "  ⚠ Shared library install skipped";
+
 # Install boot-time gaming tweaks to init.d
 mkdir -p /system/etc/init.d 2>/dev/null;
 cp -f $INSTALLER/fogos_gaming_init.sh /system/etc/init.d/99fogos_gaming 2>/dev/null && \

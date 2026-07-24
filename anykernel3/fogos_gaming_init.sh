@@ -19,21 +19,26 @@
 TAG="FogOS"
 log() { echo "[$TAG] $1" >> /data/local/fogos_boot.log 2>/dev/null; echo "[$TAG] $1"; }
 
-# Optimize a single running game process: max priority, RT scheduling and
-# big-core (CPU4-7) affinity. Defined near the top so the unit-test suite can
-# source it without running the full boot sequence.
+# Load shared FogOS runtime helpers (CPU/GPU/boost/game-list utilities).
+# BASH_SOURCE lets the unit-test suite locate the lib when sourcing this file.
+for FOG_LIB in \
+    "${FOG_LIB:-}" \
+    "$(dirname "${BASH_SOURCE:-$0}")/fogos_lib.sh" \
+    /system/etc/fogos/fogos_lib.sh \
+    /system/bin/fogos_lib.sh; do
+    [ -n "$FOG_LIB" ] && [ -f "$FOG_LIB" ] && { . "$FOG_LIB"; break; }
+done
+
+# Optimize a single running game process: pin to big cores (CPU4-7), max nice,
+# RT scheduling and top-app cgroups. Defined near the top so the unit-test
+# suite can source it without running the full boot sequence.
 optimize_game() {
     local PKGNAME="$1"
     local PID=$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)
     if [ -n "$PID" ]; then
-        # Highest scheduling priority
-        renice -n -20 -p "$PID" 2>/dev/null
+        fog_pin_big_cores "$PID" -20
         chrt -f -p 99 "$PID" 2>/dev/null
-        # Pin to big cores (CPU4-7 on SM6375)
-        taskset -p f0 "$PID" 2>/dev/null  # 0b11110000 = CPU4-7
-        # cgroup top-app
-        echo "$PID" > /dev/cpuset/top-app/tasks 2>/dev/null
-        echo "$PID" > /dev/stune/top-app/tasks 2>/dev/null
+        fog_write "$PID" /dev/stune/top-app/tasks
         log "Optimized: $PKGNAME (PID $PID)"
     fi
 }
@@ -45,7 +50,6 @@ fi
 
 # Wait for system to be fully up
 sleep 8
-
 log "=========================================================="
 log " FogOS Extreme Gaming Kernel v2.0 - ULTRA Mode Active"
 log " Developer: Prince (VirgoYT707)"
@@ -67,29 +71,12 @@ log "=========================================================="
 
 log "CPU: Locking to max freq (performance governor)..."
 
-# Switch ALL cores to performance governor (always runs at max)
-for CPU in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-    echo "performance" > "$CPU" 2>/dev/null
-done
-
-# Lock every policy: set scaling_min = scaling_max (hard lock at top freq)
-for POL in /sys/devices/system/cpu/cpufreq/policy*; do
-    MAX=$(cat "$POL/cpuinfo_max_freq" 2>/dev/null)
-    if [ -n "$MAX" ]; then
-        echo "$MAX" > "$POL/scaling_max_freq" 2>/dev/null
-        echo "$MAX" > "$POL/scaling_min_freq" 2>/dev/null
-    fi
-done
+# Switch ALL cores to performance governor and hard-lock scaling_min=scaling_max
+fog_cpu_lock_max
 
 # Disable CPU idle deep sleep states on big cores — reduces wake-up latency
 # (keeps CPU4-7 in C0/C1 only for fastest response)
-for CPU in 4 5 6 7; do
-    for STATE in /sys/devices/system/cpu/cpu${CPU}/cpuidle/state*/disable; do
-        DEPTH=$(dirname "$STATE" | grep -o "state[0-9]*" | grep -o "[0-9]*")
-        # Disable states deeper than C1 (state2+)
-        [ -n "$DEPTH" ] && [ "$DEPTH" -ge 2 ] && echo "1" > "$STATE" 2>/dev/null
-    done
-done
+fog_cpu_deep_idle 1
 
 # Disable frequency voltage mitigation for big cores
 [ -f /sys/module/msm_performance/parameters/cpu_max_freq ] && \
@@ -103,13 +90,7 @@ done
     echo "1024" > /proc/sys/kernel/sched_util_clamp_min 2>/dev/null
 
 # Input boost: all big cores boosted on every touch/input event
-[ -f /sys/module/cpu_boost/parameters/input_boost_enabled ] && \
-    echo "1" > /sys/module/cpu_boost/parameters/input_boost_enabled
-[ -f /sys/module/cpu_boost/parameters/input_boost_freq ] && \
-    echo "0:0 1:0 2:0 3:0 4:9999999 5:9999999 6:9999999 7:9999999" \
-    > /sys/module/cpu_boost/parameters/input_boost_freq 2>/dev/null
-[ -f /sys/module/cpu_boost/parameters/input_boost_ms ] && \
-    echo "2000" > /sys/module/cpu_boost/parameters/input_boost_ms
+fog_cpu_input_boost
 
 # msm_performance cpu-boost
 [ -f /sys/module/msm_performance/parameters/touchboost ] && \
@@ -290,19 +271,16 @@ log "Touch: Max rate + big-core IRQ affinity set ✓"
 log "Gaming: Applying BGMI/PUBG process optimizations..."
 
 # optimize_game() is defined near the top of this script.
-# BGMI package
-optimize_game "com.pubg.imobile"
-# PUBG Mobile package
-optimize_game "com.tencent.ig"
-# Free Fire
-optimize_game "com.dts.freefireth"
-optimize_game "com.dts.freefiremax"
+# Optimize any already-running tracked game (FOG_GAMES from fogos_lib.sh).
+for PKG in $FOG_GAMES; do
+    optimize_game "$PKG"
+done
 
 # Background: keep optimizing every 30s in case game starts later
 (
     while true; do
         sleep 30
-        for PKG in "com.pubg.imobile" "com.tencent.ig" "com.dts.freefireth" "com.dts.freefiremax"; do
+        for PKG in $FOG_GAMES; do
             optimize_game "$PKG"
         done
     done

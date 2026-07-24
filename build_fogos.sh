@@ -65,6 +65,24 @@ log_success() { echo -e "${GREEN}[FogOS] ✓ $1${NC}"; }
 log_warn()    { echo -e "${YELLOW}[FogOS] ⚠ $1${NC}"; }
 log_error()   { echo -e "${RED}[FogOS] ✗ $1${NC}"; exit 1; }
 
+# Echo the first kernel image produced by the build, or nothing if none exist.
+# Shared by build_kernel (verify) and package_zip (copy) so the candidate
+# list lives in exactly one place.
+find_kernel_image() {
+  local img
+  for img in \
+    "${OUT_DIR}/arch/arm64/boot/Image" \
+    "${OUT_DIR}/arch/arm64/boot/Image.gz" \
+    "${OUT_DIR}/arch/arm64/boot/Image.lz4" \
+    "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb"; do
+    if [ -f "$img" ]; then
+      echo "$img"
+      return 0
+    fi
+  done
+  return 0
+}
+
 ###############################################################################
 # ARGUMENT PARSING
 ###############################################################################
@@ -306,15 +324,7 @@ build_kernel() {
   make "${MAKE_FLAGS[@]}" dtbs 2>&1 || true
 
   # Step 5: Verify output
-  KERNEL_OUT=""
-  for img in \
-    "${OUT_DIR}/arch/arm64/boot/Image" \
-    "${OUT_DIR}/arch/arm64/boot/Image.gz" \
-    "${OUT_DIR}/arch/arm64/boot/Image.lz4" \
-    "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb"; do
-    [ -f "$img" ] && { KERNEL_OUT="$img"; break; }
-  done
-
+  KERNEL_OUT="$(find_kernel_image)"
   [ -z "$KERNEL_OUT" ] && log_error "Kernel image not found after build!"
 
   KERNEL_SIZE=$(du -sh "$KERNEL_OUT" | cut -f1)
@@ -328,14 +338,9 @@ package_zip() {
   log_info "Packaging AnyKernel3 ZIP..."
   mkdir -p "${ZIP_DIR}"
 
-  # Copy kernel image(s) into anykernel dir
-  for img in \
-    "${OUT_DIR}/arch/arm64/boot/Image" \
-    "${OUT_DIR}/arch/arm64/boot/Image.gz" \
-    "${OUT_DIR}/arch/arm64/boot/Image.lz4" \
-    "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb"; do
-    [ -f "$img" ] && cp "$img" "${ANYKERNEL_DIR}/" && break
-  done
+  # Copy kernel image into anykernel dir
+  KERNEL_IMG="$(find_kernel_image)"
+  [ -n "$KERNEL_IMG" ] && cp "$KERNEL_IMG" "${ANYKERNEL_DIR}/"
 
   # Copy DTBs
   mkdir -p "${ANYKERNEL_DIR}/dtbs"
@@ -346,7 +351,7 @@ package_zip() {
   # Build ZIP
   cd "${ANYKERNEL_DIR}"
   zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
-    anykernel.sh fogos_gaming_init.sh META-INF \
+    anykernel.sh fogos_lib.sh fogos_gaming_init.sh fogos_game_detector.sh META-INF \
     dtbs Image* tools 2>/dev/null || \
   zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . --exclude="*.log" 2>/dev/null
 
