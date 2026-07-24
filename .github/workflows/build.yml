@@ -20,24 +20,26 @@ jobs:
       - name: Install build dependencies
         run: |
           apt-get update
-          apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python-is-python3 wget tar
+          # Removed g++-multilib to ensure compatibility inside the clean 22.04 container environment
+          apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python-is-python3 wget tar libelf-dev
 
-      - name: Install Clang & GCC toolchain
+      - name: Fetch Official AOSP Clang & GCC Toolchains
         run: |
-          apt-get install -y clang llvm lld llvm-dev gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
-          mkdir -p $HOME/toolchains/clang/bin
-          ln -sf $(which clang) $HOME/toolchains/clang/bin/clang
-          ln -sf $(which ld.lld) $HOME/toolchains/clang/bin/ld.lld
-          ln -sf $(which llvm-ar) $HOME/toolchains/clang/bin/llvm-ar
-          ln -sf $(which llvm-nm) $HOME/toolchains/clang/bin/llvm-nm
-          ln -sf $(which llvm-objcopy) $HOME/toolchains/clang/bin/llvm-objcopy
-          ln -sf $(which llvm-objdump) $HOME/toolchains/clang/bin/llvm-objdump
-          ln -sf $(which llvm-strip) $HOME/toolchains/clang/bin/llvm-strip
+          # Install standard cross-compilers
+          apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf lld llvm
+          
+          # Create and deploy Google AOSP Clang directly into the expected path
+          mkdir -p $HOME/toolchains/clang
+          cd $HOME/toolchains/clang
+          wget https://googlesource.com
+          tar -xf clang-r530567.tar.gz
+          rm clang-r530567.tar.gz
 
       - name: Build FogOS Kernel
         run: |
           chmod +x build_fogos.sh
           export CLANG_DIR=$HOME/toolchains/clang
+          export PATH=$CLANG_DIR/bin:$PATH
           ./build_fogos.sh 2>&1 | tee build.log
 
       - name: Upload logs
