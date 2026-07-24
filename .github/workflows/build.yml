@@ -1,4 +1,4 @@
-name: FogOS Kernel Build
+name: FogOS Extreme Gaming Kernel — Build & Release
 
 on:
   push:
@@ -6,53 +6,238 @@ on:
   pull_request:
     branches: [ sixteen-qpr2, main, master, develop ]
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create GitHub Release after build?'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+
+env:
+  KERNEL_VERSION: "FogOS-Extreme-Gaming-v2.0"
+  DEVICE: "Motorola-G45-Holi"
+  ARCH: arm64
+  SUBARCH: arm64
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:22.04
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
 
+    steps:
+      # ─── Checkout ───────────────────────────────────────────────────────────
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ─── Dependencies ───────────────────────────────────────────────────────
       - name: Install build dependencies
         run: |
-          apt-get update
-          # Removed g++-multilib to ensure compatibility inside the clean 22.04 container environment
-          apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python-is-python3 wget tar libelf-dev
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential ca-certificates ccache curl \
+            flex git gnupg gperf libelf-dev libncurses-dev libssl-dev \
+            liblz4-tool lzop python3 python-is-python3 rsync \
+            schedtool squashfs-tools wget xsltproc zip zlib1g-dev \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf \
+            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabihf
 
-      - name: Fetch Official AOSP Clang & GCC Toolchains
+      # ─── Clang 19 via LLVM official APT ─────────────────────────────────────
+      - name: Install Clang 19 + LLVM tools
         run: |
-          # Install standard cross-compilers
-          apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf lld llvm
-          
-          # Create and deploy Google AOSP Clang directly into the expected path
-          mkdir -p $HOME/toolchains/clang
-          cd $HOME/toolchains/clang
-          wget https://googlesource.com
-          tar -xf clang-r530567.tar.gz
-          rm clang-r530567.tar.gz
+          echo "Installing Clang 19 from LLVM official APT..."
+          wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x /tmp/llvm.sh
+          sudo /tmp/llvm.sh 19 all
+          # Verify
+          clang-19 --version
+          echo "CLANG_VERSION=$(clang-19 --version | head -1)" >> $GITHUB_ENV
+          echo "Clang 19 installed successfully."
 
-      - name: Build FogOS Kernel
+      # ─── Android Tools (mkbootimg) ──────────────────────────────────────────
+      - name: Install Android boot image tools
+        run: |
+          pip3 install --quiet mkbootimg 2>/dev/null || true
+          # Also try from package manager
+          sudo apt-get install -y --no-install-recommends \
+            android-sdk-libsparse-utils 2>/dev/null || true
+          # Build mkbootimg from AOSP tools if pip failed
+          if ! command -v mkbootimg &>/dev/null; then
+            echo "Fetching mkbootimg from AOSP..."
+            mkdir -p $HOME/android-tools
+            cd $HOME/android-tools
+            curl -sLO https://raw.githubusercontent.com/osm0sis/mkbootimg/master/mkbootimg.py
+            chmod +x mkbootimg.py
+            sudo ln -sf $HOME/android-tools/mkbootimg.py /usr/local/bin/mkbootimg
+          fi
+          echo "mkbootimg: $(which mkbootimg || echo 'unavailable — ZIP-only build')"
+
+      # ─── AnyKernel3 core tools ──────────────────────────────────────────────
+      - name: Clone AnyKernel3 core
+        run: |
+          # Clone osm0sis/AnyKernel3 to get the tools/ directory (ak3-core.sh etc.)
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 /tmp/AK3-upstream
+          # Merge the tools/ folder into our local anykernel3/
+          cp -r /tmp/AK3-upstream/tools anykernel3/tools
+          cp -n /tmp/AK3-upstream/META-INF/com/google/android/update-binary \
+                anykernel3/META-INF/com/google/android/update-binary || true
+          echo "AnyKernel3 tools staged."
+
+      # ─── Build ──────────────────────────────────────────────────────────────
+      - name: Build FogOS Extreme Gaming Kernel
         run: |
           chmod +x build_fogos.sh
-          export CLANG_DIR=$HOME/toolchains/clang
-          export PATH=$CLANG_DIR/bin:$PATH
-          ./build_fogos.sh 2>&1 | tee build.log
+          ./build_fogos.sh --ci 2>&1 | tee build.log
+          echo "BUILD_DATE=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
 
-      - name: Upload logs
+      # ─── Collect kernel image ───────────────────────────────────────────────
+      - name: Collect kernel Image
+        run: |
+          KERNEL_IMAGE=""
+          for img in out/arch/arm64/boot/Image \
+                     out/arch/arm64/boot/Image.gz \
+                     out/arch/arm64/boot/Image.gz-dtb \
+                     out/arch/arm64/boot/Image.lz4; do
+            [ -f "$img" ] && KERNEL_IMAGE="$img" && break
+          done
+          if [ -z "$KERNEL_IMAGE" ]; then
+            echo "ERROR: No kernel image found in out/arch/arm64/boot/"
+            ls out/arch/arm64/boot/ || true
+            exit 1
+          fi
+          echo "Found kernel: $KERNEL_IMAGE"
+          echo "KERNEL_IMAGE=$KERNEL_IMAGE" >> $GITHUB_ENV
+          # Copy into anykernel3/
+          mkdir -p anykernel3
+          cp "$KERNEL_IMAGE" anykernel3/Image 2>/dev/null || \
+            cp "$KERNEL_IMAGE" anykernel3/Image.gz 2>/dev/null || true
+
+      # ─── DTB Collection ─────────────────────────────────────────────────────
+      - name: Collect DTBs
+        run: |
+          mkdir -p anykernel3/dtbs
+          # Try consolidated dtb first
+          for dtb in out/arch/arm64/boot/dtb.img \
+                     out/arch/arm64/boot/dtbs/qcom/holi-mtp.dtb \
+                     out/arch/arm64/boot/dtbs/qcom/sm6375-moto*.dtb; do
+            [ -f "$dtb" ] && cp "$dtb" anykernel3/dtbs/ && echo "Copied DTB: $dtb"
+          done
+          # Bulk copy all Holi/SM6375 DTBs
+          find out/arch/arm64/boot/dtbs -name "*holi*" \
+                                         -o -name "*sm6375*" \
+                                         -o -name "*moto_g45*" 2>/dev/null \
+            | head -20 \
+            | xargs -I{} cp {} anykernel3/dtbs/ 2>/dev/null || true
+          ls anykernel3/dtbs/ || echo "No DTBs found (will still build ZIP)"
+
+      # ─── AnyKernel3 ZIP ─────────────────────────────────────────────────────
+      - name: Create AnyKernel3 ZIP
+        run: |
+          mkdir -p release
+          DATE="${{ env.BUILD_DATE }}"
+          ZIP_NAME="${KERNEL_VERSION}-${DEVICE}-${DATE}.zip"
+          cd anykernel3
+          # Make game init script executable
+          chmod +x fogos_gaming_init.sh 2>/dev/null || true
+          # Make sure tools are present
+          ls tools/ 2>/dev/null || echo "Warning: AnyKernel3 tools/ missing"
+          zip -r9 "../release/${ZIP_NAME}" \
+            anykernel.sh \
+            fogos_gaming_init.sh \
+            META-INF \
+            tools \
+            dtbs \
+            Image* \
+            2>/dev/null || true
+          # Fallback: include everything
+          zip -r9 "../release/${ZIP_NAME}" . 2>/dev/null || true
+          cd ..
+          ls -lh release/
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+          echo "ZIP_PATH=release/${ZIP_NAME}" >> $GITHUB_ENV
+
+      # ─── Boot.img repack (when stock boot.img is provided) ──────────────────
+      - name: Repack boot.img (if stock image available)
+        run: |
+          # This step unpacks the stock boot.img, replaces the kernel,
+          # and repacks. Requires STOCK_BOOT_IMG secret or artifact.
+          # If no stock boot.img is provided, this step is skipped.
+          if [ -f "stock_boot.img" ]; then
+            echo "Stock boot.img found — repacking..."
+            chmod +x scripts/create_bootimg.sh 2>/dev/null || true
+            bash scripts/create_bootimg.sh stock_boot.img "${{ env.KERNEL_IMAGE }}" \
+              "release/${KERNEL_VERSION}-${DEVICE}-${{ env.BUILD_DATE }}-boot.img"
+          else
+            echo "No stock_boot.img found in repo root."
+            echo "To create a flashable boot.img:"
+            echo "  1. Put your stock boot.img in the repo root as stock_boot.img"
+            echo "  2. Or run: bash scripts/create_bootimg.sh stock_boot.img out/arch/arm64/boot/Image"
+            echo "  → Skipping boot.img repack for this build."
+          fi
+
+      # ─── Upload: Build log ──────────────────────────────────────────────────
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ github.run_number }}
+          name: build-log-${{ github.run_number }}
           path: build.log
+          if-no-files-found: warn
 
-      - name: Upload kernel
-        if: success()
+      # ─── Upload: AnyKernel3 ZIP ─────────────────────────────────────────────
+      - name: Upload AnyKernel3 ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: fogos-kernel-${{ github.run_number }}
-          path: release/
+          name: FogOS-Extreme-Gaming-ZIP-${{ github.run_number }}
+          path: release/*.zip
+          if-no-files-found: error
+
+      # ─── Upload: boot.img (if built) ────────────────────────────────────────
+      - name: Upload boot.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: FogOS-Extreme-Gaming-boot-${{ github.run_number }}
+          path: release/*boot.img
           if-no-files-found: warn
+
+      # ─── GitHub Release (on tag or manual trigger) ───────────────────────────
+      - name: Create GitHub Release
+        if: |
+          startsWith(github.ref, 'refs/tags/') ||
+          github.event.inputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "FogOS Extreme Gaming Kernel ${{ env.BUILD_DATE }}"
+          tag_name: ${{ github.ref_name || env.BUILD_DATE }}
+          body: |
+            ## FogOS Extreme Gaming Kernel v2.0
+            **Device:** Motorola G45 5G (SM6375 / Holi)
+            **Developer:** Prince (VirgoYT707)
+            **Base:** Linux 5.4.302 — Android 16
+            **Built:** ${{ env.BUILD_DATE }}
+
+            ### Optimizations
+            - CPU: WALT scheduler + uclamp + performance profile
+            - GPU: Adreno TZ governor tuned for sustained FPS
+            - Memory: ZRAM zstd + LRU optimization
+            - Network: TCP BBR congestion control
+            - Input: Touch latency minimized, IRQ pinned to big cores
+            - Games: BGMI / PUBG / Free Fire auto-profiles
+
+            ### Installation
+            **AnyKernel3 (TWRP):** Flash the `.zip` in recovery
+            **Fastboot:** Flash the `boot.img` with:
+            ```
+            fastboot flash boot FogOS-Extreme-Gaming-*-boot.img
+            ```
+
+            > ⚠️ Bootloader must be unlocked. Back up before flashing.
+          files: |
+            release/*.zip
+            release/*boot.img
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
