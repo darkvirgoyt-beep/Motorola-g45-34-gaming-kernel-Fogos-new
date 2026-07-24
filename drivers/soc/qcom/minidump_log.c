@@ -1086,6 +1086,7 @@ err_seq_buf:
 	return ret;
 }
 
+#if defined(CONFIG_PAGE_OWNER) || defined(CONFIG_SLUB_DEBUG)
 static bool md_register_memory_dump(int size, char *name)
 {
 	void *buffer_start;
@@ -1147,7 +1148,9 @@ static bool md_unregister_memory_dump(char *name)
 			(md_entry.size) >> PAGE_SHIFT);
 	return true;
 }
+#endif
 
+#if defined(CONFIG_PAGE_OWNER) || defined(CONFIG_SLUB_DEBUG)
 static void update_dump_size(char *name, size_t size,
 		char **addr, size_t *dump_size)
 {
@@ -1185,6 +1188,7 @@ static void update_dump_size(char *name, size_t size,
 		pr_err_ratelimited("Failed to unregister %s Minidump\n", name);
 	}
 }
+#endif
 
 #ifdef CONFIG_PAGE_OWNER
 static DEFINE_MUTEX(page_owner_dump_size_lock);
