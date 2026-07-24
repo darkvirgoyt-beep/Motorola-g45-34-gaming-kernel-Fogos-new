@@ -23,17 +23,24 @@ ACTIVE_LOG="/data/local/fogos_active_game.txt"
 log() { echo "[$TAG][$(date '+%H:%M:%S')] $1" >> "$LOG" 2>/dev/null; }
 
 # Load shared FogOS runtime helpers (CPU/GPU/boost/game-list utilities).
+# BASH_SOURCE lets the unit-test suite locate the lib when sourcing this file.
 for FOG_LIB in \
     "${FOG_LIB:-}" \
-    "$(dirname "$0")/fogos_lib.sh" \
+    "$(dirname "${BASH_SOURCE:-$0}")/fogos_lib.sh" \
     /system/etc/fogos/fogos_lib.sh \
     /system/bin/fogos_lib.sh; do
     [ -n "$FOG_LIB" ] && [ -f "$FOG_LIB" ] && { . "$FOG_LIB"; break; }
 done
 
+# Thin sysfs-write alias kept for the on-device callers and the unit tests.
+write() { fog_write "$@"; }
+
 # Truncate log if too large
-[ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 524288 ] && \
-  tail -c 262144 "$LOG" > "${LOG}.tmp" && mv "${LOG}.tmp" "$LOG"
+truncate_log() {
+  [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 524288 ] && \
+    tail -c 262144 "$LOG" > "${LOG}.tmp" && mv "${LOG}.tmp" "$LOG"
+}
+[ "${FOGOS_LIB_ONLY:-0}" = "1" ] || truncate_log
 
 ###############################################################################
 # PROFILE: GAME (Performance)
@@ -173,6 +180,11 @@ is_game() { fog_is_game "$1"; }
 LAST_STATE="normal"
 LAST_GAME=""
 CHECK_INTERVAL=5  # seconds
+
+# Skip the monitoring daemon loop when sourced for unit testing.
+if [ "${FOGOS_LIB_ONLY:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 log "FogOS Game Detector started — monitoring every ${CHECK_INTERVAL}s"
 

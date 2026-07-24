@@ -16,21 +16,40 @@
 #   • Complete network/connectivity overhaul for lowest ping
 ###############################################################################
 
-# Wait for system to be fully up
-sleep 8
-
 TAG="FogOS"
 log() { echo "[$TAG] $1" >> /data/local/fogos_boot.log 2>/dev/null; echo "[$TAG] $1"; }
 
 # Load shared FogOS runtime helpers (CPU/GPU/boost/game-list utilities).
+# BASH_SOURCE lets the unit-test suite locate the lib when sourcing this file.
 for FOG_LIB in \
     "${FOG_LIB:-}" \
-    "$(dirname "$0")/fogos_lib.sh" \
+    "$(dirname "${BASH_SOURCE:-$0}")/fogos_lib.sh" \
     /system/etc/fogos/fogos_lib.sh \
     /system/bin/fogos_lib.sh; do
     [ -n "$FOG_LIB" ] && [ -f "$FOG_LIB" ] && { . "$FOG_LIB"; break; }
 done
 
+# Optimize a single running game process: pin to big cores (CPU4-7), max nice,
+# RT scheduling and top-app cgroups. Defined near the top so the unit-test
+# suite can source it without running the full boot sequence.
+optimize_game() {
+    local PKGNAME="$1"
+    local PID=$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)
+    if [ -n "$PID" ]; then
+        fog_pin_big_cores "$PID" -20
+        chrt -f -p 99 "$PID" 2>/dev/null
+        fog_write "$PID" /dev/stune/top-app/tasks
+        log "Optimized: $PKGNAME (PID $PID)"
+    fi
+}
+
+# Skip the boot tuning sequence when sourced for unit testing.
+if [ "${FOGOS_LIB_ONLY:-0}" = "1" ]; then
+    return 0 2>/dev/null || exit 0
+fi
+
+# Wait for system to be fully up
+sleep 8
 log "=========================================================="
 log " FogOS Extreme Gaming Kernel v2.0 - ULTRA Mode Active"
 log " Developer: Prince (VirgoYT707)"
@@ -251,20 +270,8 @@ log "Touch: Max rate + big-core IRQ affinity set ✓"
 
 log "Gaming: Applying BGMI/PUBG process optimizations..."
 
-# Function to optimize a running game process
-optimize_game() {
-    local PKGNAME="$1"
-    local PID=$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)
-    if [ -n "$PID" ]; then
-        # Pin to big cores + highest nice, then add RT priority and stune group
-        fog_pin_big_cores "$PID" -20
-        chrt -f -p 99 "$PID" 2>/dev/null
-        fog_write "$PID" /dev/stune/top-app/tasks
-        log "Optimized: $PKGNAME (PID $PID)"
-    fi
-}
-
-# Optimize any already-running tracked game
+# optimize_game() is defined near the top of this script.
+# Optimize any already-running tracked game (FOG_GAMES from fogos_lib.sh).
 for PKG in $FOG_GAMES; do
     optimize_game "$PKG"
 done
