@@ -14,6 +14,7 @@ A **boot.img** is a single partition image containing your kernel + ramdisk that
    - Your phone's TWRP backup (`/recovery_backup/boot.img`)
 3. **fastboot installed** → `sudo apt install fastboot` (Linux/Mac) or [download from Google](https://developer.android.com/tools/releases/platform-tools)
 4. **Bootloader unlocked** → Check: `adb reboot bootloader` → you should see "UNLOCKED"
+5. **mkbootimg tools** → `sudo apt install mkbootimg` (includes both mkbootimg and unpack_bootimg)
 
 ---
 

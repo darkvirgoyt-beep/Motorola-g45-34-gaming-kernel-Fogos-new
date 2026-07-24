@@ -16,7 +16,7 @@
 #   3. Repacks a new boot.img identical in structure to your stock image
 #
 # Requirements:
-#   pip3 install mkbootimg    (or: sudo apt install android-sdk-libsparse-utils)
+#   apt install mkbootimg    (includes both mkbootimg and unpack_bootimg)
 #   OR download from: https://github.com/osm0sis/mkbootimg
 ###############################################################################
 
@@ -39,7 +39,7 @@ check_tools() {
   MKBOOT_CMD=""
 
   # unpackbootimg / unpack_bootimg
-  for cmd in unpackbootimg unpack_bootimg; do
+  for cmd in unpack_bootimg unpackbootimg; do
     command -v "$cmd" &>/dev/null && { UNPACK_CMD="$cmd"; break; }
   done
 
@@ -49,16 +49,16 @@ check_tools() {
   done
 
   if [ -z "$UNPACK_CMD" ] || [ -z "$MKBOOT_CMD" ]; then
-    log "Installing mkbootimg tools..."
-    pip3 install mkbootimg 2>/dev/null || true
-    for cmd in unpackbootimg unpack_bootimg; do
+    log "Installing mkbootimg tools via apt..."
+    apt install -y mkbootimg 2>/dev/null || true
+    for cmd in unpack_bootimg unpackbootimg; do
       command -v "$cmd" &>/dev/null && { UNPACK_CMD="$cmd"; break; }
     done
     command -v mkbootimg &>/dev/null && MKBOOT_CMD="mkbootimg"
   fi
 
-  [ -z "$UNPACK_CMD" ] && fail "unpackbootimg not found. Run: pip3 install mkbootimg"
-  [ -z "$MKBOOT_CMD" ] && fail "mkbootimg not found. Run: pip3 install mkbootimg"
+  [ -z "$UNPACK_CMD" ] && fail "unpack_bootimg not found. Run: apt install mkbootimg"
+  [ -z "$MKBOOT_CMD" ] && fail "mkbootimg not found. Run: apt install mkbootimg"
 
   ok "Tools: $UNPACK_CMD + $MKBOOT_CMD"
 }
@@ -85,6 +85,7 @@ trap "rm -rf $WORK_DIR" EXIT
 log "Unpacking stock boot.img..."
 cd "$WORK_DIR"
 
+"$UNPACK_CMD" --boot_img "$OLDPWD/$STOCK_IMG" --out . 2>&1 | tee /tmp/unpack.log || \
 "$UNPACK_CMD" --input "$OLDPWD/$STOCK_IMG" --output . 2>&1 | tee /tmp/unpack.log || \
 "$UNPACK_CMD" -i "$OLDPWD/$STOCK_IMG" -o . 2>&1 | tee /tmp/unpack.log
 
