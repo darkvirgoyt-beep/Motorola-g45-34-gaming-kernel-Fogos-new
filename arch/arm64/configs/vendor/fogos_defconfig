@@ -266,6 +266,14 @@ CONFIG_PROFILING=y
 CONFIG_TRACEPOINTS=y
 # end of General setup
 
+#
+# KernelSU (drivers/staging/rksu) targets kernels >= 5.10 and does not build
+# against this 5.4 tree (uses linux/pgtable.h, the fsnotify .handle_inode_event
+# op, and mmap_read_*lock helpers that do not exist here). Disable it so the
+# kernel builds; root support can be re-added with a 5.4-compatible port.
+#
+# CONFIG_KSU is not set
+
 CONFIG_ARM64=y
 CONFIG_64BIT=y
 CONFIG_MMU=y
