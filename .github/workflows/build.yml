@@ -158,24 +158,36 @@ jobs:
           echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
           echo "ZIP_PATH=release/${ZIP_NAME}" >> $GITHUB_ENV
 
-      # ─── Boot.img repack (when stock boot.img is provided) ──────────────────
-      - name: Repack boot.img (if stock image available)
+      # ─── Boot.img repack ────────────────────────────────────────────────────
+      - name: Install boot image tools
         run: |
-          # This step unpacks the stock boot.img, replaces the kernel,
-          # and repacks. Requires STOCK_BOOT_IMG secret or artifact.
-          # If no stock boot.img is provided, this step is skipped.
-          if [ -f "stock_boot.img" ]; then
-            echo "Stock boot.img found — repacking..."
-            chmod +x scripts/create_bootimg.sh 2>/dev/null || true
-            bash scripts/create_bootimg.sh stock_boot.img "${{ env.KERNEL_IMAGE }}" \
-              "release/${KERNEL_VERSION}-${DEVICE}-${{ env.BUILD_DATE }}-boot.img"
-          else
-            echo "No stock_boot.img found in repo root."
-            echo "To create a flashable boot.img:"
-            echo "  1. Put your stock boot.img in the repo root as stock_boot.img"
-            echo "  2. Or run: bash scripts/create_bootimg.sh stock_boot.img out/arch/arm64/boot/Image"
-            echo "  → Skipping boot.img repack for this build."
+          pip3 install mkbootimg 2>&1 || true
+          # Fallback: build unpackbootimg from source
+          if ! command -v unpackbootimg &>/dev/null; then
+            TMP=$(mktemp -d)
+            git clone --depth=1 https://github.com/osm0sis/mkbootimg "$TMP/mkbootimg" 2>/dev/null || true
+            if [ -f "$TMP/mkbootimg/unpackbootimg" ]; then
+              sudo install "$TMP/mkbootimg/unpackbootimg" /usr/local/bin/
+            fi
           fi
+          echo "mkbootimg:    $(command -v mkbootimg    || echo NOT FOUND)"
+          echo "unpackbootimg:$(command -v unpackbootimg|| echo NOT FOUND)"
+
+      - name: Repack boot.img with new kernel
+        run: |
+          STOCK="stock/boot.img"
+          KERNEL="${{ env.KERNEL_IMAGE }}"
+          if [ ! -f "$STOCK" ]; then
+            echo "No stock/boot.img — skipping repack."
+            exit 0
+          fi
+          if [ ! -f "$KERNEL" ]; then
+            echo "No kernel image found — skipping repack."
+            exit 0
+          fi
+          chmod +x scripts/repack_boot.sh
+          bash scripts/repack_boot.sh "$KERNEL" "$STOCK" release/
+          ls -lh release/*boot*.img 2>/dev/null || echo "boot.img not generated"
 
       # ─── Upload: Build log ──────────────────────────────────────────────────
       - name: Upload build log
