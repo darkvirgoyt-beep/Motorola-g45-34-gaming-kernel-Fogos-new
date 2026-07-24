@@ -26,8 +26,11 @@ log() { echo "[$TAG][$(date '+%H:%M:%S')] $1" >> "$LOG" 2>/dev/null; }
 write() { echo "$1" > "$2" 2>/dev/null; }
 
 # Truncate log if too large
-[ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 524288 ] && \
-  tail -c 262144 "$LOG" > "${LOG}.tmp" && mv "${LOG}.tmp" "$LOG"
+truncate_log() {
+  [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 524288 ] && \
+    tail -c 262144 "$LOG" > "${LOG}.tmp" && mv "${LOG}.tmp" "$LOG"
+}
+[ "${FOGOS_LIB_ONLY:-0}" = "1" ] || truncate_log
 
 ###############################################################################
 # PROFILE: GAME (Performance)
@@ -204,6 +207,11 @@ is_game() {
 LAST_STATE="normal"
 LAST_GAME=""
 CHECK_INTERVAL=5  # seconds
+
+# Skip the monitoring daemon loop when sourced for unit testing.
+if [ "${FOGOS_LIB_ONLY:-0}" = "1" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 log "FogOS Game Detector started — monitoring every ${CHECK_INTERVAL}s"
 

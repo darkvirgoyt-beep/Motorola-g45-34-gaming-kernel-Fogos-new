@@ -15,7 +15,11 @@
 #   ./build_fogos.sh --ci         # CI mode (auto-detect toolchain, no prompts)
 ###############################################################################
 
-set -euo pipefail
+# When sourced by the unit-test suite (tests/build_fogos.bats) with
+# FOGOS_LIB_ONLY=1, only the function definitions are loaded and the build is
+# not executed. In every normal invocation this variable is unset and the
+# script behaves exactly as before.
+[ "${FOGOS_LIB_ONLY:-0}" = "1" ] || set -euo pipefail
 
 ###############################################################################
 # DIRECTORIES
@@ -32,13 +36,16 @@ ARCH="arm64"
 SUBARCH="arm64"
 
 # Primary defconfig: use vendor/fogos_defconfig if it exists, else holi-qgki
-if [ -f "${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_defconfig" ]; then
-  BASE_DEFCONFIG="vendor/fogos_defconfig"
-elif [ -f "${KERNEL_DIR}/arch/arm64/configs/vendor/holi-qgki_defconfig" ]; then
-  BASE_DEFCONFIG="vendor/holi-qgki_defconfig"
-else
-  BASE_DEFCONFIG="defconfig"
-fi
+select_defconfig() {
+  if [ -f "${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_defconfig" ]; then
+    echo "vendor/fogos_defconfig"
+  elif [ -f "${KERNEL_DIR}/arch/arm64/configs/vendor/holi-qgki_defconfig" ]; then
+    echo "vendor/holi-qgki_defconfig"
+  else
+    echo "defconfig"
+  fi
+}
+BASE_DEFCONFIG="$(select_defconfig)"
 
 GAMING_FRAGMENT="${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_gaming.config"
 
@@ -65,17 +72,22 @@ DO_CLEAN=false
 DO_MENUCONFIG=false
 CI_MODE=false
 
-for ARG in "$@"; do
-  case "$ARG" in
-    --clean)      DO_CLEAN=true ;;
-    --menuconfig) DO_MENUCONFIG=true ;;
-    --ci)         CI_MODE=true ;;
-    --help|-h)
-      echo "Usage: $0 [--clean] [--menuconfig] [--ci]"
-      exit 0
-      ;;
-  esac
-done
+parse_args() {
+  DO_CLEAN=false
+  DO_MENUCONFIG=false
+  CI_MODE=false
+  for ARG in "$@"; do
+    case "$ARG" in
+      --clean)      DO_CLEAN=true ;;
+      --menuconfig) DO_MENUCONFIG=true ;;
+      --ci)         CI_MODE=true ;;
+      --help|-h)
+        echo "Usage: $0 [--clean] [--menuconfig] [--ci]"
+        return 2
+        ;;
+    esac
+  done
+}
 
 ###############################################################################
 # TOOLCHAIN AUTO-DETECTION
@@ -366,23 +378,31 @@ print_summary() {
 ###############################################################################
 # ENTRY POINT
 ###############################################################################
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║       FogOS Extreme Gaming Kernel Builder v2.0       ║${NC}"
-echo -e "${CYAN}║   Motorola G45 (SM6375/Holi) · Developer: VirgoYT   ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
-echo ""
+main() {
+  # parse_args returns non-zero only for --help/-h, which should exit cleanly.
+  parse_args "$@" || exit 0
 
-setup_toolchain
-apply_vdso32_fix
+  echo ""
+  echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+  echo -e "${CYAN}║       FogOS Extreme Gaming Kernel Builder v2.0       ║${NC}"
+  echo -e "${CYAN}║   Motorola G45 (SM6375/Holi) · Developer: VirgoYT   ║${NC}"
+  echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+  echo ""
 
-$DO_CLEAN && do_clean
+  setup_toolchain
+  apply_vdso32_fix
 
-if $DO_MENUCONFIG; then
-  do_menuconfig
-  exit 0
-fi
+  $DO_CLEAN && do_clean
 
-build_kernel
-package_zip
-print_summary
+  if $DO_MENUCONFIG; then
+    do_menuconfig
+    exit 0
+  fi
+
+  build_kernel
+  package_zip
+  print_summary
+}
+
+# Skip execution when sourced for unit testing (see FOGOS_LIB_ONLY guard above).
+[ "${FOGOS_LIB_ONLY:-0}" = "1" ] || main "$@"
