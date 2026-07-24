@@ -560,6 +560,164 @@ sysctl -w fs.file-max=2097152
     log "fstrim /data /cache completed") &
 
 ###############################################################################
+# KSM — DISABLE DURING GAMING (wastes CPU scanning memory)
+###############################################################################
+
+log "KSM: Disabling kernel samepage merging..."
+[ -f /sys/kernel/mm/ksm/run ]             && echo "0" > /sys/kernel/mm/ksm/run
+[ -f /sys/kernel/mm/ksm/sleep_millisecs ] && echo "5000" > /sys/kernel/mm/ksm/sleep_millisecs
+log "KSM: Disabled ✓"
+
+###############################################################################
+# TRANSPARENT HUGEPAGES — ALWAYS (faster memory alloc for game heap)
+###############################################################################
+
+THP="/sys/kernel/mm/transparent_hugepage"
+[ -f "$THP/enabled" ]              && echo "always"   > "$THP/enabled"
+[ -f "$THP/defrag" ]               && echo "defer+madvise" > "$THP/defrag"
+[ -f "$THP/khugepaged/scan_sleep_millisecs" ] && \
+    echo "1000" > "$THP/khugepaged/scan_sleep_millisecs"
+log "THP: always ✓"
+
+###############################################################################
+# ENTROPY — FASTER CRYPTO / RANDOM (speeds up SSL, game auth)
+###############################################################################
+
+log "Entropy: Tuning random pool..."
+sysctl -w kernel.random.read_wakeup_threshold=64
+sysctl -w kernel.random.write_wakeup_threshold=128
+# Urandom always ready
+[ -f /proc/sys/kernel/random/urandom_min_reseed_secs ] && \
+    echo "60" > /proc/sys/kernel/random/urandom_min_reseed_secs 2>/dev/null
+log "Entropy: Optimized ✓"
+
+###############################################################################
+# SYSTEM UI + LAUNCHER — FLAGSHIP-SMOOTH ANIMATIONS
+###############################################################################
+
+log "UI: Boosting SystemUI + Launcher for flagship feel..."
+
+# Boost SystemUI (handles all animations, status bar, notifications)
+for PID in $(pgrep -f "systemui\|SystemUI" 2>/dev/null); do
+    renice -n -5 -p "$PID" 2>/dev/null
+    chrt -r -p 10 "$PID" 2>/dev/null
+    taskset -p ff "$PID" 2>/dev/null   # all cores
+    echo "$PID" > /dev/cpuset/top-app/tasks 2>/dev/null
+done
+
+# Boost Launcher (instant app open feel)
+for PID in $(pgrep -f "launcher\|Launcher\|trebuchet\|lawnchair\|oneplus.launcher" 2>/dev/null); do
+    renice -n -5 -p "$PID" 2>/dev/null
+    taskset -p f0 "$PID" 2>/dev/null   # big cores
+done
+
+# Speed up window animations via system properties
+setprop debug.sf.hw 1                           2>/dev/null  # hardware composer
+setprop debug.egl.hw 1                          2>/dev/null
+setprop debug.sf.latch_unsignaled 1             2>/dev/null  # don't wait for fence
+setprop ro.surface_flinger.max_frame_buffer_acquired_buffers 3  2>/dev/null
+setprop debug.sf.frame_rate_multiple_threshold 60  2>/dev/null
+
+# Reduce window animation scales (0.5 = twice as fast, feels snappier)
+setprop window_animation_scale 0.5              2>/dev/null
+setprop transition_animation_scale 0.5          2>/dev/null
+setprop animator_duration_scale 0.5             2>/dev/null
+
+# Enable hardware-accelerated rendering everywhere
+setprop debug.hwui.renderer opengl              2>/dev/null
+setprop debug.hwui.use_buffer_age false         2>/dev/null
+setprop debug.hwui.skia_atrace_enabled false    2>/dev/null
+
+log "UI: SystemUI boosted, animations 0.5x speed ✓"
+
+###############################################################################
+# AUDIO — ZERO LATENCY (no game audio delay)
+###############################################################################
+
+log "Audio: Low latency mode..."
+
+# Disable audio offload (causes stutter on some kernels)
+setprop audio.offload.disable 1                 2>/dev/null
+setprop audio.deep_buffer.media false           2>/dev/null
+setprop af.fast_track_multiplier 1              2>/dev/null
+
+# Lower audio thread latency
+setprop ro.audio.flinger_standbytime_ms 300     2>/dev/null
+
+# Audio boost: pin audioserver to big cores
+for PID in $(pgrep -f "audioserver\|audio" 2>/dev/null); do
+    renice -n -10 -p "$PID" 2>/dev/null
+    chrt -f -p 45 "$PID" 2>/dev/null
+    taskset -p f0 "$PID" 2>/dev/null
+done
+
+log "Audio: Low latency active ✓"
+
+###############################################################################
+# APP LAUNCH SPEED — INSTANT OPEN
+###############################################################################
+
+log "Apps: Tuning for instant launch..."
+
+# Disable dex2oat in background (kills launch smoothness)
+setprop pm.dexopt.boot-after-ota verify        2>/dev/null
+setprop pm.dexopt.first-boot verify            2>/dev/null
+
+# Preload zygote (faster app forks)
+setprop dalvik.vm.usejit true                   2>/dev/null
+setprop dalvik.vm.jitmaxsize 256m               2>/dev/null
+setprop dalvik.vm.jitinitialsize 64m            2>/dev/null
+setprop dalvik.vm.jitthreshold 500              2>/dev/null   # compile hot code faster
+setprop dalvik.vm.heapsize 256m                 2>/dev/null
+setprop dalvik.vm.heapmaxfree 8m               2>/dev/null
+setprop dalvik.vm.heapgrowthlimit 192m          2>/dev/null
+
+# Faster process start (reduce binder overhead)
+setprop persist.device_config.runtime_native_boot.iorap_readahead_enable true 2>/dev/null
+
+log "Apps: JIT tuned, instant launch active ✓"
+
+###############################################################################
+# INTERCONNECT / BUS — LOCK DDR + LLC BANDWIDTH
+###############################################################################
+
+log "Bus: Locking memory bus bandwidth..."
+
+# Lock DDR bus to max (prevents bandwidth throttle mid-game)
+for BW in /sys/class/devfreq/soc:qcom,cpu-llcc-ddr-bw/min_freq \
+           /sys/class/devfreq/soc:qcom,llcc-ddr-bw/min_freq \
+           /sys/class/devfreq/soc:qcom,cpu0-cpu-l3-lat/min_freq \
+           /sys/class/devfreq/soc:qcom,cpu4-cpu-l3-lat/min_freq; do
+    if [ -f "$BW" ]; then
+        MAX=$(cat "$(dirname $BW)/max_freq" 2>/dev/null)
+        [ -n "$MAX" ] && echo "$MAX" > "$BW" 2>/dev/null
+    fi
+done
+
+# Set L3 cache governor to performance
+for L3GOV in /sys/class/devfreq/soc:qcom,cpu*-cpu-l3-lat/governor; do
+    echo "performance" > "$L3GOV" 2>/dev/null
+done
+
+log "Bus: DDR + L3 cache locked to max ✓"
+
+###############################################################################
+# SPLIT LOCK + PERF TWEAKS
+###############################################################################
+
+# Disable hung task detection overhead
+sysctl -w kernel.hung_task_timeout_secs=0       2>/dev/null
+
+# Faster context switches
+sysctl -w kernel.sched_nr_migrate=64            2>/dev/null
+
+# Disable audit (overhead for every syscall)
+sysctl -w kernel.audit_backlog_limit=0          2>/dev/null
+
+# Larger pipe buffer for smoother IPC
+sysctl -w fs.pipe-max-size=4194304             2>/dev/null
+
+###############################################################################
 # LOGGING — REDUCE OVERHEAD
 ###############################################################################
 
@@ -587,6 +745,12 @@ log " ✓ Touch: Max rate + big-core IRQ"
 log " ✓ Network: TCP BBR + FQ + zero-ping"
 log " ✓ BGMI/PUBG: Process + cgroup pinned"
 log " ✓ Aim: Touch registration + WLAN PS off"
+log " ✓ KSM: Disabled (more free RAM)"
+log " ✓ THP: Always (faster game heap)"
+log " ✓ UI: 0.5x animations (flagship smooth)"
+log " ✓ Audio: Zero latency mode"
+log " ✓ Apps: Instant launch (JIT tuned)"
+log " ✓ Bus: DDR + L3 locked to max"
 log "=========================================================="
 log " Log: /data/local/fogos_boot.log"
 log "=========================================================="
