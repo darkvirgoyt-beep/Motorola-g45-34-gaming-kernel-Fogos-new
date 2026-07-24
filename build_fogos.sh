@@ -187,12 +187,13 @@ apply_vdso32_fix() {
 do_clean() {
   log_info "Cleaning output directory..."
   rm -rf "${OUT_DIR}"
-  # Always scrub generated files from the source root so the kernel's
-  # outputmakefile check (triggered by O=out builds) never fails.
-  # This catches .config left by merge_config.sh and other stale files.
-  log_info "Cleaning source tree (mrproper)..."
-  make -C "${KERNEL_DIR}" mrproper 2>/dev/null || \
-    { rm -f "${KERNEL_DIR}/.config"; rm -rf "${KERNEL_DIR}/include/generated"; }
+  # Remove the specific generated files the kernel's outputmakefile check
+  # looks for in the source root.  Running full 'mrproper' on a large tree
+  # can take minutes; targeted deletion is instant and sufficient.
+  rm -f  "${KERNEL_DIR}/.config"
+  rm -f  "${KERNEL_DIR}/scripts/basic/fixdep"
+  rm -rf "${KERNEL_DIR}/include/generated"
+  rm -rf "${KERNEL_DIR}/include/config"
   log_success "Clean done."
 }
 
