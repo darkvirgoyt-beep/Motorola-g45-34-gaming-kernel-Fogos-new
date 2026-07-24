@@ -134,6 +134,10 @@ setup_toolchain() {
 
   # LLVM=1 tells the kernel Makefile to use clang/lld/llvm-ar etc.
   # CC override ensures we use the versioned binary if available.
+  # HOSTCC: use gcc for host tools (fixdep, etc.) — gcc carries the glibc
+  # sysroot in Nix/NixOS; clang alone does not find sys/types.h there.
+  HOSTCC_BIN="$(command -v gcc 2>/dev/null || echo gcc)"
+
   MAKE_FLAGS=(
     O="${OUT_DIR}"
     ARCH="${ARCH}"
@@ -141,6 +145,7 @@ setup_toolchain() {
     LLVM=1
     LLVM_IAS=1
     CC="${CLANG_BASENAME}"
+    HOSTCC="${HOSTCC_BIN}"
     LD=ld.lld
     AR=llvm-ar
     NM=llvm-nm
