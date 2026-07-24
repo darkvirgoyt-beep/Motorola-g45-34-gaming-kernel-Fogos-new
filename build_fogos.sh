@@ -84,7 +84,13 @@ setup_toolchain() {
   log_info "Detecting toolchain..."
 
   # --- Clang detection ---
-  # Priority: custom dir → clang-19 → clang-18 → system clang
+  # Priority: custom dir → unwrapped system clang → versioned wrappers
+  #
+  # NixOS ships a "clang-wrapper" that explicitly refuses cross-compilation
+  # to a different target (--target=aarch64-linux-gnu on an x86_64 host)
+  # and prints "cc-wrapper is not designed with multi-target compilers in
+  # mind".  For kernel cross-builds we need the *unwrapped* clang binary,
+  # obtained via --print-prog-name=clang.
   CLANG_BIN=""
   for candidate in \
     "${HOME}/toolchains/clang/bin" \
@@ -102,19 +108,29 @@ setup_toolchain() {
 
   CLANG_EXEC="$(ls "${CLANG_BIN}"/clang* 2>/dev/null | grep -E 'clang(-[0-9]+)?$' | head -1)"
   [ -z "$CLANG_EXEC" ] && CLANG_EXEC="clang"
-  CLANG_BASENAME="$(basename "$CLANG_EXEC")"
+
+  # Resolve the real (unwrapped) binary so cross-compilation works on NixOS.
+  CLANG_REAL="$("${CLANG_EXEC}" --print-prog-name=clang 2>/dev/null || true)"
+  if [ -x "${CLANG_REAL}" ] && [ "${CLANG_REAL}" != "${CLANG_EXEC}" ]; then
+    log_info "Using unwrapped clang for cross-compilation: ${CLANG_REAL}"
+    # Prepend the unwrapped clang's bin dir so llvm-* tools are also unwrapped.
+    UNWRAPPED_BIN="$(dirname "${CLANG_REAL}")"
+    export PATH="${UNWRAPPED_BIN}:${PATH}"
+    CLANG_EXEC="${CLANG_REAL}"
+  fi
+  CLANG_BASENAME="$(basename "${CLANG_EXEC}")"
 
   CLANG_VER="$("${CLANG_EXEC}" --version 2>/dev/null | head -1 || echo 'unknown')"
   log_info "Clang: ${CLANG_VER}"
 
   # --- Cross-compiler detection ---
-  # Look for aarch64-linux-gnu or aarch64-linux-android prefix
+  # Verify each candidate prefix actually has a gcc binary before accepting it.
   CROSS=""
   for pfx in \
     "${HOME}/toolchains/gcc/aarch64-linux-android-4.9/bin/aarch64-linux-android-" \
     "$(command -v aarch64-linux-gnu-gcc 2>/dev/null | sed 's/gcc$//')" \
     "$(command -v aarch64-linux-android-gcc 2>/dev/null | sed 's/gcc$//')"; do
-    [ -n "$pfx" ] && { CROSS="$pfx"; break; }
+    [ -n "$pfx" ] && [ -x "${pfx}gcc" ] && { CROSS="$pfx"; break; }
   done
 
   CROSS32=""
@@ -122,7 +138,7 @@ setup_toolchain() {
     "${HOME}/toolchains/gcc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-" \
     "$(command -v arm-linux-gnueabihf-gcc 2>/dev/null | sed 's/gcc$//')" \
     "$(command -v arm-linux-androideabi-gcc 2>/dev/null | sed 's/gcc$//')"; do
-    [ -n "$pfx" ] && { CROSS32="$pfx"; break; }
+    [ -n "$pfx" ] && [ -x "${pfx}gcc" ] && { CROSS32="$pfx"; break; }
   done
 
   log_info "CROSS_COMPILE  : ${CROSS:-none (LLVM-only mode)}"
@@ -152,6 +168,10 @@ setup_toolchain() {
     OBJCOPY=llvm-objcopy
     OBJDUMP=llvm-objdump
     STRIP=llvm-strip
+    # Pin the clang target triple to aarch64-linux-gnu regardless of what
+    # CROSS_COMPILE prefix is detected; without this the kernel derives
+    # --target=aarch64-linux-android which cannot find clang's stdarg.h.
+    CLANG_TRIPLE=aarch64-linux-gnu-
     CROSS_COMPILE="${CROSS_COMPILE}"
     CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32}"
     -j"${JOBS}"
