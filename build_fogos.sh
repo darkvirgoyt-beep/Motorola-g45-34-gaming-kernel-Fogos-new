@@ -149,10 +149,26 @@ setup_toolchain() {
   export CROSS_COMPILE_ARM32="${CROSS32:-arm-linux-gnueabihf-}"
 
   # LLVM=1 tells the kernel Makefile to use clang/lld/llvm-ar etc.
-  # CC override ensures we use the versioned binary if available.
   # HOSTCC: use gcc for host tools (fixdep, etc.) — gcc carries the glibc
   # sysroot in Nix/NixOS; clang alone does not find sys/types.h there.
   HOSTCC_BIN="$(command -v gcc 2>/dev/null || echo gcc)"
+
+  # NixOS ships clang builtin headers (stdarg.h etc.) inside the *wrapper*
+  # package's resource-root, not inside the raw clang store path.  When we
+  # use the raw (unwrapped) clang as CC, we must tell it where to find those
+  # headers via -resource-dir; otherwise target-side files such as
+  # scripts/mod/devicetable-offsets.s fail with 'stdarg.h not found'.
+  # We detect it from the wrapper's --print-resource-dir (the wrapper knows
+  # where its resource-root is even if the raw binary does not).
+  WRAPPER_CLANG="$(command -v clang 2>/dev/null || true)"
+  CLANG_RESOURCE_FLAGS=""
+  if [ -n "${WRAPPER_CLANG}" ]; then
+    WRAPPER_RDIR="$("${WRAPPER_CLANG}" --print-resource-dir 2>/dev/null || true)"
+    if [ -f "${WRAPPER_RDIR}/include/stdarg.h" ]; then
+      CLANG_RESOURCE_FLAGS="-resource-dir ${WRAPPER_RDIR}"
+      log_info "Clang resource dir: ${WRAPPER_RDIR}"
+    fi
+  fi
 
   MAKE_FLAGS=(
     O="${OUT_DIR}"
@@ -168,14 +184,17 @@ setup_toolchain() {
     OBJCOPY=llvm-objcopy
     OBJDUMP=llvm-objdump
     STRIP=llvm-strip
-    # Pin the clang target triple to aarch64-linux-gnu regardless of what
-    # CROSS_COMPILE prefix is detected; without this the kernel derives
-    # --target=aarch64-linux-android which cannot find clang's stdarg.h.
+    # Pin the clang target triple to aarch64-linux-gnu so the kernel uses
+    # --target=aarch64-linux-gnu (not android) in all CC invocations.
     CLANG_TRIPLE=aarch64-linux-gnu-
     CROSS_COMPILE="${CROSS_COMPILE}"
     CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32}"
     -j"${JOBS}"
   )
+
+  # Append resource-dir flag so all target-side CC calls can find builtins.
+  [ -n "${CLANG_RESOURCE_FLAGS}" ] && \
+    MAKE_FLAGS+=( KCFLAGS="${CLANG_RESOURCE_FLAGS}" )
 
   log_success "Toolchain ready."
 }
