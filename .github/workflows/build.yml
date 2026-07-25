@@ -55,9 +55,8 @@ jobs:
 
 
     - name: Configure Kernel
-      run: |
-        make O=${OUT} ARCH=${ARCH} vendor/holi_defconfig
-
+  run: |
+    make O=${OUT} ARCH=${ARCH} fogos_defconfig
 
     - name: Build Kernel
       run: |
