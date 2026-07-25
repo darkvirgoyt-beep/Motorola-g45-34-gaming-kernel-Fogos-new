@@ -24,8 +24,9 @@ on:
       - 'sound/**'
       - 'techpack/**'
       - 'build_fogos.sh'
-      - 'scripts/create_bootimg.sh'
+      - 'scripts/**'
       - 'stock/boot.img'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       release:
