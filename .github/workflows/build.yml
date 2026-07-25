@@ -21,7 +21,6 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-24.04
 
     steps:
@@ -35,7 +34,7 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        sudo apt update
+        sudo apt update -qq
         sudo apt install -y \
           bc \
           bison \
@@ -55,8 +54,20 @@ jobs:
 
 
     - name: Configure Kernel
-  run: |
-    make O=${OUT} ARCH=${ARCH} fogos_defconfig
+      run: |
+        make O=${OUT} ARCH=${ARCH} fogos_defconfig
+
+
+    - name: Verify Config
+      run: |
+        if [ ! -f "${OUT}/.config" ]; then
+          echo "❌ Kernel config missing"
+          exit 1
+        fi
+
+        echo "✅ Kernel config created"
+        ls -lh ${OUT}/.config
+
 
     - name: Build Kernel
       run: |
@@ -65,42 +76,63 @@ jobs:
           LLVM=1 \
           LLVM_IAS=1 \
           -j$(nproc) \
-          Image.gz-dtb \
-          2>&1 | tee build.log
+          Image.gz-dtb 2>&1 | tee build.log
 
 
-    - name: Verify Kernel
+    - name: Verify Kernel Image
       run: |
         KERNEL=${OUT}/arch/arm64/boot/Image.gz-dtb
 
         if [ ! -f "$KERNEL" ]; then
-          echo "Kernel missing"
-          find ${OUT} -name "Image*" -o -name "*dtb*"
+          echo "❌ Kernel image missing"
+
+          echo "Searching:"
+          find ${OUT} -name "Image*" -o -name "*dtb*" || true
+
+          echo "Last build errors:"
+          grep -i error build.log | tail -50 || true
+
           exit 1
         fi
 
+        echo "✅ Kernel found"
         ls -lh "$KERNEL"
 
         echo "KERNEL_PATH=$KERNEL" >> $GITHUB_ENV
 
 
-    - name: Prepare Release
+    - name: Prepare AnyKernel3 ZIP
       run: |
         mkdir -p release
 
-        cp "${KERNEL_PATH}" release/Image.gz-dtb
+        cp "${KERNEL_PATH}" anykernel3/Image
 
-        zip -j \
-        release/FogOS-kernel-${DATE}.zip \
-        release/Image.gz-dtb
+        ZIP_NAME="FogOS-Extreme-Gaming-v2.0-Holi-${DATE}"
+
+        cd anykernel3
+        zip -r9 "../release/${ZIP_NAME}.zip" . \
+          --exclude="*.git*"
+        cd ..
+
+        echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
 
-    - name: Upload Kernel Artifact
+    - name: Upload Flashable ZIP
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ZIP_NAME }}
+        path: release/${{ env.ZIP_NAME }}.zip
+        retention-days: 30
+        if-no-files-found: error
+
+
+    - name: Upload Kernel Image
       uses: actions/upload-artifact@v4
       with:
         name: FogOS-kernel-${{ env.DATE }}
-        path: release/
+        path: ${{ env.KERNEL_PATH }}
         retention-days: 30
+        if-no-files-found: error
 
 
     - name: Upload Build Log
@@ -109,3 +141,26 @@ jobs:
       with:
         name: build-log-${{ env.DATE }}
         path: build.log
+        retention-days: 7
+        if-no-files-found: warn
+
+
+    - name: Create GitHub Release
+      if: github.event.inputs.release == 'true'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: FogOS-v2.0-${{ env.DATE }}
+        name: "VirgoYT Gaming Kernel — FogOS Extreme Gaming v2.0"
+        body: |
+          ## FogOS Extreme Gaming Kernel
+
+          Developer: Prince (VirgoYT707)
+
+          Device:
+          Motorola G45 / G34 (SM6375 Holi)
+
+          Kernel:
+          Linux 5.4.x
+
+          Built:
+          ${{ env.DATE }}
