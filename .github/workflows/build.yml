@@ -8,122 +8,105 @@ on:
         required: true
         default: 'false'
         type: choice
-        options: ['true', 'false']
+        options:
+          - true
+          - false
 
 env:
   ARCH: arm64
   SUBARCH: arm64
+  OUT: out
   KBUILD_BUILD_USER: prince
   KBUILD_BUILD_HOST: virgoyt707
 
 jobs:
   build:
+
     runs-on: ubuntu-24.04
+
     steps:
-      - name: Checkout Kernel
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-          fetch-depth: 1
 
-      - name: Install Toolchain + mkbootimg
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y bc bison flex libssl-dev make \
-            gcc-aarch64-linux-gnu clang unzip mkbootimg
+    - name: Checkout Kernel
+      uses: actions/checkout@v4
+      with:
+        submodules: true
+        fetch-depth: 1
 
-      - name: Set Date
-        run: echo "DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
 
-      - name: Build Kernel
-        run: |
-          make -j$(nproc) \
-            ARCH=${ARCH} \
-            SUBARCH=${SUBARCH} \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CONFIG_NO_ERROR_ON_MISMATCH=y \
-            Image.gz-dtb 2>&1 | tee build.log
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          bc \
+          bison \
+          flex \
+          libssl-dev \
+          make \
+          clang \
+          lld \
+          gcc-aarch64-linux-gnu \
+          zip \
+          unzip
 
-      - name: Verify Kernel Output
-        run: |
-          KERNEL=out/arch/arm64/boot/Image.gz-dtb
-          if [ ! -f "$KERNEL" ]; then
-            echo "❌ Kernel not found at $KERNEL"
-            echo "Searching for kernel outputs:"
-            find . -name "Image*" -o -name "zImage*" 2>/dev/null | head -20
-            exit 1
-          fi
-          echo "✅ Kernel found: $KERNEL"
-          ls -lh "$KERNEL"
-          echo "KERNEL_PATH=$KERNEL" >> $GITHUB_ENV
 
-      - name: Repack boot.img
-        run: |
-          mkdir -p release
+    - name: Set Date
+      run: |
+        echo "DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
 
-          mkbootimg \
-            --header_version 3 \
-            --kernel "${KERNEL_PATH}" \
-            --base 0x00000000 \
-            --kernel_offset 0x00008000 \
-            --ramdisk_offset 0x01000000 \
-            --tags_offset 0x00000100 \
-            --pagesize 4096 \
-            -o "release/FogOS-${DATE}-boot.img"
 
-          ls -lh "release/FogOS-${DATE}-boot.img"
-          echo "✅ boot.img packed!"
-          echo "BOOT_IMG=release/FogOS-${DATE}-boot.img" >> $GITHUB_ENV
+    - name: Configure Kernel
+      run: |
+        make O=${OUT} ARCH=${ARCH} vendor/holi_defconfig
 
-      - name: Prepare AnyKernel3 ZIP
-        run: |
-          # Use local AnyKernel3 directory with FogOS scripts
-          cp "${KERNEL_PATH}" anykernel3/Image
-          ZIP_NAME="FogOS-Extreme-Gaming-v2.0-Holi-${DATE}"
-          cd anykernel3
-          zip -r9 "../release/${ZIP_NAME}.zip" . --exclude="*.git*"
-          cd ..
-          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
 
-      - name: Upload flashable ZIP
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ZIP_NAME }}
-          path: release/${{ env.ZIP_NAME }}.zip
-          retention-days: 30
-          if-no-files-found: error
+    - name: Build Kernel
+      run: |
+        make O=${OUT} \
+          ARCH=${ARCH} \
+          LLVM=1 \
+          LLVM_IAS=1 \
+          -j$(nproc) \
+          Image.gz-dtb \
+          2>&1 | tee build.log
 
-      - name: Upload boot.img
-        uses: actions/upload-artifact@v4
-        with:
-          name: FogOS-boot-img-${{ env.DATE }}
-          path: ${{ env.BOOT_IMG }}
-          retention-days: 30
-          if-no-files-found: error
 
-      - name: Upload build log
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: build-log-${{ env.DATE }}
-          path: build.log
-          retention-days: 7
-          if-no-files-found: warn
+    - name: Verify Kernel
+      run: |
+        KERNEL=${OUT}/arch/arm64/boot/Image.gz-dtb
 
-      - name: Create GitHub Release
-        if: github.event.inputs.release == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: FogOS-v2.0-${{ env.DATE }}
-          name: "VirgoYT Gaming Kernel — FogOS Extreme Gaming v2.0"
-          body: |
-            ## VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
-            **Developer:** Prince · VirgoYT707
-            **Device:** Motorola G45 / G34 (Snapdragon 6 Gen 3 / Fogos)
-            **Base:** Linux 5.4.x · Android 16
-            **Built:** ${{ env.DATE }}
+        if [ ! -f "$KERNEL" ]; then
+          echo "Kernel missing"
+          find ${OUT} -name "Image*" -o -name "*dtb*"
+          exit 1
+        fi
 
-            ### Flash via TWRP
-            Install the .zip in recovery.
+        ls -lh "$KERNEL"
 
-            ### Flash via Fastboot (no TWRP needed)
+        echo "KERNEL_PATH=$KERNEL" >> $GITHUB_ENV
+
+
+    - name: Prepare Release
+      run: |
+        mkdir -p release
+
+        cp "${KERNEL_PATH}" release/Image.gz-dtb
+
+        zip -j \
+        release/FogOS-kernel-${DATE}.zip \
+        release/Image.gz-dtb
+
+
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: FogOS-kernel-${{ env.DATE }}
+        path: release/
+        retention-days: 30
+
+
+    - name: Upload Build Log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log-${{ env.DATE }}
+        path: build.log
