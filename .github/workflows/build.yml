@@ -134,8 +134,12 @@ jobs:
 
       - name: Install AVB Tools
         run: |
-          pip3 install avbtool || true
-          sudo apt-get install -y openssl mkbootimg || true
+          sudo apt-get install -y openssl mkbootimg python3
+          # Install avbtool from AOSP
+          git clone https://android.googlesource.com/platform/external/avb /tmp/avbtool
+          chmod +x /tmp/avbtool/avbtool.py
+          sudo ln -sf /tmp/avbtool/avbtool.py /usr/local/bin/avbtool
+          avbtool version
 
       - name: Repack boot.img with AVB signing
         run: |
@@ -153,30 +157,8 @@ jobs:
             echo "Using stock boot.img for parameters: $STOCK_BOOT"
             bash scripts/create_bootimg_fixed.sh "$STOCK_BOOT" "${KERNEL_PATH}" "release/FogOS-${DATE}-boot.img"
           else
-            echo "No stock boot.img found, using default parameters"
-            mkbootimg \
-              --header_version 3 \
-              --kernel "${KERNEL_PATH}" \
-              --base 0x00000000 \
-              --kernel_offset 0x00008000 \
-              --ramdisk_offset 0x01000000 \
-              --tags_offset 0x00000100 \
-              --pagesize 4096 \
-              -o "release/FogOS-${DATE}-boot.img"
-            
-            # Add AVB signature if avbtool is available
-            if command -v avbtool &>/dev/null; then
-              echo "Adding AVB signature..."
-              # Generate test key for signing
-              openssl genrsa -out /tmp/test_key.pem 2048
-              avbtool add_hash_footer \
-                --image "release/FogOS-${DATE}-boot.img" \
-                --partition_name boot \
-                --partition_size 67108864 \
-                --key /tmp/test_key.pem \
-                --algorithm SHA256_RSA2048 \
-                --calc_max_image_size || echo "AVB signing failed, continuing without signature"
-            fi
+            echo "No stock boot.img found, using simple boot.img creation"
+            bash scripts/create_simple_bootimg.sh "${KERNEL_PATH}" "release/FogOS-${DATE}-boot.img"
           fi
 
           ls -lh "release/FogOS-${DATE}-boot.img"
