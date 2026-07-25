@@ -128,7 +128,7 @@ setup_toolchain() {
     "$(dirname "$(command -v clang-20 2>/dev/null)" 2>/dev/null)" \
     "$(dirname "$(command -v clang-18 2>/dev/null)" 2>/dev/null)" \
     "$(dirname "$(command -v clang 2>/dev/null)" 2>/dev/null)"; do
-    [ -n "$candidate" ] && [ -d "$candidate" ] && \
+    [ -n "$candidate" ] && [ -d "$candidate" ] && [ "$candidate" != "." ] && \
       { CLANG_BIN="$candidate"; break; }
   done
 
