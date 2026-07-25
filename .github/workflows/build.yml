@@ -78,17 +78,18 @@ jobs:
             python3 python3-pip \
             cpio git
 
-          # Ubuntu 24.04's apt mkbootimg ships broken: it imports 'gki' but the
-          # package doesn't include that module.  Create a harmless stub so
-          # the import succeeds.  The gki module is only used for GKI boot
-          # certificate generation — not needed for plain kernel repacking.
-          SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
-          sudo mkdir -p "${SITE}/gki"
-          sudo tee "${SITE}/gki/__init__.py" > /dev/null << 'PYEOF'
-PYEOF
-          sudo tee "${SITE}/gki/generate_gki_certificate.py" > /dev/null << 'PYEOF'
-def generate_gki_certificate(*args, **kwargs):
-    return None
+          # Ubuntu 24.04's apt mkbootimg imports 'gki' but ships without it.
+          # Stub the missing module — it's only used for GKI certificate signing,
+          # not for plain kernel repacking.
+          sudo python3 - <<'PYEOF'
+import site, pathlib
+gki = pathlib.Path(site.getsitepackages()[0]) / "gki"
+gki.mkdir(exist_ok=True)
+(gki / "__init__.py").write_text("")
+(gki / "generate_gki_certificate.py").write_text(
+    "def generate_gki_certificate(*a, **k): return None\n"
+)
+print("gki stub installed at", gki)
 PYEOF
 
           # Smoke-test both tools
@@ -215,7 +216,7 @@ PYEOF
 
       # ──────────────────────────────────────────────────────────────────────
       - name: 🚀 Create GitHub Release
-        if: github.event.inputs.release == 'true'
+        if: github.event_name == 'push' || github.event.inputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: FogOS-v2.0-${{ env.DATE }}
