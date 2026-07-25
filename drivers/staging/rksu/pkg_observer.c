@@ -19,24 +19,32 @@ struct watch_dir {
 
 static struct fsnotify_group *g;
 
-static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask,
-				  struct inode *inode, struct inode *dir,
-				  const struct qstr *file_name, u32 cookie)
+static int ksu_handle_inode_event(struct fsnotify_group *group,
+				  struct inode *inode,
+				  u32 mask,
+				  const void *data,
+				  int data_type,
+				  const struct qstr *file_name,
+				  u32 cookie,
+				  struct fsnotify_iter_info *iter_info)
 {
 	if (!file_name)
 		return 0;
+
 	if (mask & FS_ISDIR)
 		return 0;
+
 	if (file_name->len == 13 &&
 	    !memcmp(file_name->name, "packages.list", 13)) {
-		pr_info("packages.list detected: %d\n", mask);
+		pr_info("packages.list detected: %u\n", mask);
 		track_throne(false);
 	}
+
 	return 0;
 }
 
 static const struct fsnotify_ops ksu_ops = {
-	.handle_inode_event = ksu_handle_inode_event,
+	.handle_event = ksu_handle_inode_event,
 };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask,
@@ -55,29 +63,41 @@ static int add_mark_on_inode(struct inode *inode, u32 mask,
 		fsnotify_put_mark(m);
 		return -EINVAL;
 	}
+
 	*out = m;
 	return 0;
 }
 
 static int watch_one_dir(struct watch_dir *wd)
 {
-	int ret = kern_path(wd->path, LOOKUP_FOLLOW, &wd->kpath);
+	int ret;
+
+	ret = kern_path(wd->path, LOOKUP_FOLLOW, &wd->kpath);
 	if (ret) {
-		pr_info("path not ready: %s (%d)\n", wd->path, ret);
+		pr_info("path not ready: %s (%d)\n",
+			wd->path, ret);
 		return ret;
 	}
+
 	wd->inode = d_inode(wd->kpath.dentry);
 	ihold(wd->inode);
 
-	ret = add_mark_on_inode(wd->inode, wd->mask, &wd->mark);
+	ret = add_mark_on_inode(wd->inode,
+				wd->mask,
+				&wd->mark);
+
 	if (ret) {
-		pr_err("Add mark failed for %s (%d)\n", wd->path, ret);
+		pr_err("Add mark failed for %s (%d)\n",
+		       wd->path, ret);
+
 		path_put(&wd->kpath);
 		iput(wd->inode);
 		wd->inode = NULL;
 		return ret;
 	}
+
 	pr_info("watching %s\n", wd->path);
+
 	return 0;
 }
 
@@ -88,18 +108,23 @@ static void unwatch_one_dir(struct watch_dir *wd)
 		fsnotify_put_mark(wd->mark);
 		wd->mark = NULL;
 	}
+
 	if (wd->inode) {
 		iput(wd->inode);
 		wd->inode = NULL;
 	}
+
 	if (wd->kpath.dentry) {
 		path_put(&wd->kpath);
-		memset(&wd->kpath, 0, sizeof(wd->kpath));
+		memset(&wd->kpath, 0,
+		       sizeof(wd->kpath));
 	}
 }
 
-static struct watch_dir g_watch = { .path = "/data/system",
-				    .mask = MASK_SYSTEM };
+static struct watch_dir g_watch = {
+	.path = "/data/system",
+	.mask = MASK_SYSTEM,
+};
 
 int ksu_observer_init(void)
 {
@@ -110,17 +135,23 @@ int ksu_observer_init(void)
 #else
 	g = fsnotify_alloc_group(&ksu_ops);
 #endif
+
 	if (IS_ERR(g))
 		return PTR_ERR(g);
 
 	ret = watch_one_dir(&g_watch);
+
 	pr_info("observer init done\n");
-	return 0;
+
+	return ret;
 }
 
 void ksu_observer_exit(void)
 {
 	unwatch_one_dir(&g_watch);
-	fsnotify_put_group(g);
+
+	if (g)
+		fsnotify_put_group(g);
+
 	pr_info("observer exit done\n");
 }
