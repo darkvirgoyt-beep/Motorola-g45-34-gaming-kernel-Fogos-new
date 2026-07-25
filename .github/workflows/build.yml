@@ -114,11 +114,20 @@ PYEOF
           fi
           echo "Using defconfig: ${DEFCONFIG}"
 
-          make O=${OUT} \
+          # Pipe 'yes' so Kconfig never blocks on new/unset symbols —
+          # they get their safe default automatically.
+          yes "" | make O=${OUT} \
             ARCH=${ARCH} \
             LLVM=1 LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             ${DEFCONFIG}
+
+          # Resolve any remaining unset symbols to their defaults without prompting.
+          make O=${OUT} \
+            ARCH=${ARCH} \
+            LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            olddefconfig
 
           echo "✅ Kernel configured"
           echo "DEFCONFIG=${DEFCONFIG}" >> $GITHUB_ENV
