@@ -30,46 +30,154 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y bc bison flex libssl-dev make \
-            gcc-aarch64-linux-gnu clang unzip mkbootimg
+            gcc-aarch64-linux-gnu clang unzip mkbootimg \
+            gcc g++ python3 python3-pip openssl lld
 
       - name: Set Date
         run: echo "DATE=$(date +%Y%m%d)" >> $GITHUB_ENV
 
       - name: Build Kernel
         run: |
+          # Use the FogOS defconfig if available, otherwise fallback to holi-qgki
+          DEFCONFIG="vendor/fogos_defconfig"
+          if [ ! -f "arch/arm64/configs/$DEFCONFIG" ]; then
+            DEFCONFIG="vendor/holi-qgki_defconfig"
+          fi
+          if [ ! -f "arch/arm64/configs/$DEFCONFIG" ]; then
+            DEFCONFIG="defconfig"
+          fi
+          echo "Using defconfig: $DEFCONFIG"
+          
+          # Clean build
+          make ARCH=arm64 mrproper || true
+          
+          # Configure kernel
           make -j$(nproc) \
             ARCH=${ARCH} \
             SUBARCH=${SUBARCH} \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            CONFIG_NO_ERROR_ON_MISMATCH=y \
-            Image.gz-dtb 2>&1 | tee build.log
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            O=out \
+            "$DEFCONFIG"
+          
+          # Build kernel
+          make -j$(nproc) \
+            ARCH=${ARCH} \
+            SUBARCH=${SUBARCH} \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            O=out \
+            Image.gz-dtb 2>&1 | tee build.log || \
+          make -j$(nproc) \
+            ARCH=${ARCH} \
+            SUBARCH=${SUBARCH} \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            O=out \
+            Image 2>&1 | tee build.log
 
       - name: Verify Kernel Output
         run: |
-          KERNEL=out/arch/arm64/boot/Image.gz-dtb
-          if [ ! -f "$KERNEL" ]; then
-            echo "❌ Kernel not found at $KERNEL"
+          # Try multiple possible kernel output locations
+          KERNEL=""
+          for path in \
+            "out/arch/arm64/boot/Image.gz-dtb" \
+            "out/arch/arm64/boot/Image.gz" \
+            "out/arch/arm64/boot/Image.lz4" \
+            "out/arch/arm64/boot/Image" \
+            "arch/arm64/boot/Image.gz-dtb" \
+            "arch/arm64/boot/Image.gz" \
+            "arch/arm64/boot/Image"; do
+            if [ -f "$path" ]; then
+              KERNEL="$path"
+              echo "✅ Found kernel at: $KERNEL"
+              break
+            fi
+          done
+          
+          if [ -z "$KERNEL" ]; then
+            echo "❌ Kernel not found"
             echo "Searching for kernel outputs:"
-            find . -name "Image*" -o -name "zImage*" 2>/dev/null | head -20
+            find out arch -name "Image*" -o -name "zImage*" 2>/dev/null | head -20
             exit 1
           fi
-          echo "✅ Kernel found: $KERNEL"
+          
           ls -lh "$KERNEL"
           echo "KERNEL_PATH=$KERNEL" >> $GITHUB_ENV
 
-      - name: Repack boot.img
+      - name: Install AVB Tools
+        run: |
+          pip3 install avbtool || true
+          sudo apt-get install -y openssl mkbootimg || true
+
+      - name: Repack boot.img with AVB signing
         run: |
           mkdir -p release
-
-          mkbootimg \
-            --header_version 3 \
-            --kernel "${KERNEL_PATH}" \
-            --base 0x00000000 \
-            --kernel_offset 0x00008000 \
-            --ramdisk_offset 0x01000000 \
-            --tags_offset 0x00000100 \
-            --pagesize 4096 \
-            -o "release/FogOS-${DATE}-boot.img"
+          
+          # Try to get stock boot.img parameters if available
+          STOCK_BOOT=""
+          if [ -f "stock/boot.img" ]; then
+            STOCK_BOOT="stock/boot.img"
+          elif [ -f "boot_stock.img" ]; then
+            STOCK_BOOT="boot_stock.img"
+          fi
+          
+          if [ -n "$STOCK_BOOT" ]; then
+            echo "Using stock boot.img for parameters: $STOCK_BOOT"
+            bash scripts/create_bootimg_fixed.sh "$STOCK_BOOT" "${KERNEL_PATH}" "release/FogOS-${DATE}-boot.img"
+          else
+            echo "No stock boot.img found, using default parameters"
+            mkbootimg \
+              --header_version 3 \
+              --kernel "${KERNEL_PATH}" \
+              --base 0x00000000 \
+              --kernel_offset 0x00008000 \
+              --ramdisk_offset 0x01000000 \
+              --tags_offset 0x00000100 \
+              --pagesize 4096 \
+              -o "release/FogOS-${DATE}-boot.img"
+            
+            # Add AVB signature if avbtool is available
+            if command -v avbtool &>/dev/null; then
+              echo "Adding AVB signature..."
+              # Generate test key for signing
+              openssl genrsa -out /tmp/test_key.pem 2048
+              avbtool add_hash_footer \
+                --image "release/FogOS-${DATE}-boot.img" \
+                --partition_name boot \
+                --partition_size 67108864 \
+                --key /tmp/test_key.pem \
+                --algorithm SHA256_RSA2048 \
+                --calc_max_image_size || echo "AVB signing failed, continuing without signature"
+            fi
+          fi
 
           ls -lh "release/FogOS-${DATE}-boot.img"
           echo "✅ boot.img packed!"

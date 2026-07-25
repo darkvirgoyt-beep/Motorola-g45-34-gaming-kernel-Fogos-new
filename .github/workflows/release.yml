@@ -61,7 +61,9 @@ jobs:
 
             ---
             *"I don't chase. I attract. I WIN."* — Prince, VirgoYT707
-          files: release/**/*.zip
+          files: |
+            release/**/*.zip
+            release/**/*.img
           prerelease: ${{ inputs.prerelease == 'true' }}
           draft: false
         env:
