@@ -76,6 +76,15 @@ jobs:
             mkbootimg \
             python3 python3-pip \
             cpio git
+
+          # Ubuntu 24.04's apt mkbootimg is broken (missing 'gki' Python module).
+          # Install the self-contained AOSP version from PyPI — it overwrites
+          # /usr/local/bin/mkbootimg which takes precedence in PATH.
+          pip3 install --upgrade mkbootimg
+
+          # Verify tools
+          which unpack_bootimg && unpack_bootimg --help 2>/dev/null | head -1 || true
+          which mkbootimg     && python3 -c "import mkbootimg" 2>/dev/null && echo "✅ mkbootimg (pip) OK" || mkbootimg --version 2>/dev/null || true
           echo "✅ Dependencies installed"
 
       # ──────────────────────────────────────────────────────────────────────
