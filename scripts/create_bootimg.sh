@@ -182,7 +182,8 @@ else:
     idx = args.index('--output')
     args[idx + 1] = output_img
 
-args += ['--output', output_img] if '--output' not in args else []
+
+
 
 print('[bootimg] Running:', ' '.join(shlex.quote(a) for a in args))
 sys.exit(subprocess.call(args))
