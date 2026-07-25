@@ -48,6 +48,8 @@ jobs:
   build:
     name: Build Kernel and Boot Image
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout source
@@ -176,24 +178,6 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Set repository public
-        if: github.event_name == 'push' || github.event.inputs.release == 'true'
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X PATCH \
-            -H "Authorization: Bearer $GH_PAT" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}" \
-            -d '{"private":false,"visibility":"public"}')
-          if [ "$HTTP" = "200" ]; then
-            echo "Repository set to public"
-          else
-            echo "Could not set repo public (HTTP $HTTP) — check GH_PAT has Administration:write scope"
-          fi
-
       - name: Create GitHub Release
         if: github.event_name == 'push' || github.event.inputs.release == 'true'
         uses: softprops/action-gh-release@v2
@@ -228,4 +212,4 @@ jobs:
             release/${{ env.ZIP_NAME }}.zip
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           draft: false
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}
