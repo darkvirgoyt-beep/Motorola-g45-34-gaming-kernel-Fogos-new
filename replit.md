@@ -89,52 +89,50 @@ A gaming-optimized Android kernel for the Motorola G45 (Qualcomm SM6375 / Holi p
 
 ## How to Build
 
-> **Build on Ubuntu 20.04 or 22.04** — Kernel compilation requires a Linux host with a cross-compiler. Use GitHub Actions for automated cloud builds (see Releases tab).
+Builds run automatically on GitHub Actions — no local Linux machine needed.
 
-### 1. Install dependencies
+### ✅ Option 1 — GitHub Actions (Recommended)
+
+1. Go to your repo → **Actions** → **FogOS Kernel — Build & Boot Image**
+2. Click **Run workflow**
+3. Set "Create GitHub Release" to `true` if you want a release
+4. Download the artifacts when done:
+   - `FogOS-boot-YYYYMMDD-HHMM.img` → flash via **fastboot** ← main output
+   - `FogOS-Extreme-Gaming-v2.0-Holi-*.zip` → flash via **TWRP**
+
+Auto-builds also trigger on every push to `main` or `sixteen-qpr2` when kernel source files change.
+
+### ✅ Option 2 — Replit Shell (for editing / testing scripts)
+
 ```bash
-sudo apt-get install -y bc bison build-essential ccache curl flex \
-  g++-multilib gcc-multilib git gnupg gperf imagemagick \
-  lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool \
-  libncurses5 libncurses5-dev libssl-dev libxml2-utils lzop \
-  pngcrush rsync zip zlib1g-dev python3 python-is-python3
+# Syntax-check build scripts
+bash -n build_fogos.sh
+
+# Repack boot.img with a pre-built kernel (no compilation needed)
+bash scripts/create_bootimg.sh stock/boot.img <kernel_Image> release/FogOS-boot.img
 ```
 
-### 2. Download Clang toolchain
-```bash
-mkdir -p ~/toolchains
-# ZyCromerZ Clang (recommended for Android 5.4)
-git clone --depth=1 https://github.com/ZyCromerZ/Clang \
-  -b 20 ~/toolchains/clang
-```
-
-### 3. Edit toolchain paths in build_fogos.sh
-```bash
-CLANG_DIR="${HOME}/toolchains/clang"
-```
-
-### 4. Build
-```bash
-chmod +x build_fogos.sh
-./build_fogos.sh
-```
-
-### 5. Output
-- `release/FogOS-Extreme-Gaming-v1.0-Holi-YYYYMMDD.zip` — flash with TWRP
-
-### Clean build
-```bash
-./build_fogos.sh --clean
-```
-
-### menuconfig
-```bash
-./build_fogos.sh --menuconfig
-```
+> Full kernel compilation (cross-compile ARM64) is only supported on the GitHub Actions runner, not in this Replit environment.
 
 ---
 
 ## How to Flash
+
+### Method 1 — Fastboot (Recommended for Moto G45)
+
+```bash
+# Requires unlocked bootloader
+adb reboot bootloader
+fastboot flash boot FogOS-boot-YYYYMMDD.img
+fastboot reboot
+```
+
+If you get `FAILED (remote: AVB footer not found)`:
+```bash
+fastboot --disable-verity --disable-verification flash boot FogOS-boot-YYYYMMDD.img
+```
+
+### Method 2 — TWRP
 
 1. Boot into **TWRP** custom recovery
 2. Go to **Install** → select the ZIP
@@ -147,9 +145,10 @@ chmod +x build_fogos.sh
 
 | File | Description |
 |------|-------------|
-| `Image.gz-dtb` | Kernel image with embedded DTB |
-| `dtbo.img` | Device tree overlay image |
-| `FogOS-Extreme-Gaming-v1.0-Holi-YYYYMMDD.zip` | AnyKernel3 flashable ZIP |
+| `release/FogOS-boot-YYYYMMDD.img` | **Fastboot-flashable boot image** (primary) |
+| `release/FogOS-Extreme-Gaming-v2.0-Holi-*.zip` | AnyKernel3 TWRP ZIP |
+| `stock/boot.img` | Stock Moto G45 boot image (source for repack) |
+| `scripts/create_bootimg.sh` | Boot image packer (unpack + repack) |
 | `anykernel3/fogos_gaming_init.sh` | Runtime boot tuning script |
 
 ---
