@@ -113,22 +113,35 @@ PYEOF
           # vendor/fogos_defconfig is the required FogOS gaming config.
           # A missing defconfig means a mis-configured tree — fail fast.
           DEFCONFIG="vendor/fogos_defconfig"
+          GAMING_FRAG="arch/arm64/configs/vendor/fogos_gaming.config"
+
           if [ ! -f "arch/arm64/configs/${DEFCONFIG}" ]; then
             echo "❌ fogos_defconfig not found at arch/arm64/configs/${DEFCONFIG}"
             echo "   Add the defconfig before building — do NOT fall back to a generic config."
             exit 1
           fi
-          echo "Using defconfig: ${DEFCONFIG}"
+          echo "Using defconfig : ${DEFCONFIG}"
+          echo "Gaming fragment : ${GAMING_FRAG}"
 
-          # Pipe 'yes' so Kconfig never blocks on new/unset symbols —
-          # they get their safe default automatically.
+          # Step 1 — Load base defconfig (pipe 'yes' to auto-answer new Kconfig symbols)
           yes "" | make O=${OUT} \
             ARCH=${ARCH} \
             LLVM=1 LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             ${DEFCONFIG}
 
-          # Resolve any remaining unset symbols to their defaults without prompting.
+          # Step 2 — Merge gaming optimisation fragment (audio, Bolero, WCD937x,
+          #           Dolby Atmos, SW_SYNC for screen recording, GPU/CPU tuning …)
+          #           merge_config.sh: -m = merge into existing .config, -O = output dir
+          if [ -f "${GAMING_FRAG}" ]; then
+            bash scripts/kconfig/merge_config.sh -m -O "${OUT}" \
+              "${OUT}/.config" "${GAMING_FRAG}"
+            echo "✅ Gaming fragment merged"
+          else
+            echo "⚠️ Gaming fragment not found — skipping merge"
+          fi
+
+          # Step 3 — Resolve any remaining unset symbols to safe defaults
           make O=${OUT} \
             ARCH=${ARCH} \
             LLVM=1 LLVM_IAS=1 \
@@ -137,6 +150,17 @@ PYEOF
 
           echo "✅ Kernel configured"
           echo "DEFCONFIG=${DEFCONFIG}" >> $GITHUB_ENV
+
+          # Print the audio-critical configs so we can verify in the log
+          echo "── Audio config check ──────────────────────────────────"
+          for cfg in SND_SOC_BOLERO SND_SOC_WCD937X SND_SOC_HOLI \
+                     TX_MACRO RX_MACRO VA_MACRO WSA_MACRO \
+                     QTI_PP REGMAP_WCD_IRQ MFD_WCD SW_SYNC \
+                     VIDEO_QCOM_VENUS HDCP_QSEECOM; do
+            val=$(grep "^CONFIG_${cfg}=" "${OUT}/.config" 2>/dev/null || echo "# NOT SET")
+            echo "  ${cfg}: ${val}"
+          done
+          echo "────────────────────────────────────────────────────────"
 
       # ──────────────────────────────────────────────────────────────────────
       - name: 🔧 Build Kernel

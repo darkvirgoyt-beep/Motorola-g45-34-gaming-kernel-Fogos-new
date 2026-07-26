@@ -9,7 +9,7 @@ import os
 import json
 import urllib.request
 import urllib.error
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 
 app = Flask(__name__)
 
@@ -22,12 +22,13 @@ def _gh_token():
     return os.environ.get("FOGOS_GITHUB_TOKEN", "")
 
 
-def _gh_request(path: str, method: str = "GET", payload: dict | None = None):
+def _gh_request(path: str, method: str = "GET", payload: dict | None = None,
+                accept: str = "application/vnd.github+json"):
     """Make a GitHub API request. Returns (status_code, parsed_json_or_None)."""
     token = _gh_token()
     url = f"https://api.github.com/{path}"
     headers = {
-        "Accept": "application/vnd.github+json",
+        "Accept": accept,
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": "FogOS-Dashboard/3",
     }
@@ -37,7 +38,7 @@ def _gh_request(path: str, method: str = "GET", payload: dict | None = None):
     data = json.dumps(payload).encode() if payload else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             body = resp.read()
             return resp.status, json.loads(body) if body else None
     except urllib.error.HTTPError as e:
@@ -81,7 +82,88 @@ def api_runs():
                 "run_number":  r["run_number"],
             })
         return jsonify({"ok": True, "runs": runs})
-    return jsonify({"ok": False, "error": data.get("message", "Unknown error") if data else "No response", "status": status})
+    return jsonify({"ok": False,
+                    "error": data.get("message", "Unknown error") if data else "No response",
+                    "status": status})
+
+
+@app.route("/api/run/<int:run_id>/jobs")
+def api_run_jobs(run_id):
+    """Return jobs and their steps for a specific run."""
+    status, data = _gh_request(
+        f"repos/{GITHUB_REPO}/actions/runs/{run_id}/jobs?per_page=10"
+    )
+    if status == 200 and data:
+        jobs = []
+        for j in data.get("jobs", []):
+            steps = []
+            for s in j.get("steps", []):
+                steps.append({
+                    "name":       s.get("name", ""),
+                    "status":     s.get("status", ""),
+                    "conclusion": s.get("conclusion"),
+                    "number":     s.get("number", 0),
+                    "started_at": s.get("started_at"),
+                    "completed_at": s.get("completed_at"),
+                })
+            jobs.append({
+                "id":           j["id"],
+                "name":         j["name"],
+                "status":       j["status"],
+                "conclusion":   j.get("conclusion"),
+                "started_at":   j.get("started_at"),
+                "completed_at": j.get("completed_at"),
+                "html_url":     j.get("html_url", ""),
+                "steps":        steps,
+            })
+        return jsonify({"ok": True, "jobs": jobs})
+    return jsonify({"ok": False,
+                    "error": (data or {}).get("message", f"HTTP {status}"),
+                    "status": status})
+
+
+@app.route("/api/run/<int:run_id>/logs")
+def api_run_logs(run_id):
+    """
+    Stream logs for a run's first job.
+    GitHub returns a redirect to a signed zip URL; we follow it and stream the text.
+    """
+    token = _gh_token()
+    if not token:
+        return jsonify({"ok": False, "error": "No token"}), 400
+
+    # First get the job ID
+    status, data = _gh_request(
+        f"repos/{GITHUB_REPO}/actions/runs/{run_id}/jobs?per_page=1"
+    )
+    if status != 200 or not data or not data.get("jobs"):
+        return jsonify({"ok": False, "error": "No jobs found"}), 404
+
+    job_id = data["jobs"][0]["id"]
+
+    # Request logs — GitHub redirects to a signed URL
+    log_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/jobs/{job_id}/logs"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "FogOS-Dashboard/3",
+    }
+    req = urllib.request.Request(log_url, headers=headers)
+    try:
+        # urllib follows redirects automatically
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        # Trim to last 200 lines so the UI stays readable
+        lines = raw.splitlines()
+        trimmed = lines[-200:] if len(lines) > 200 else lines
+        return jsonify({"ok": True, "log": "\n".join(trimmed), "total_lines": len(lines)})
+    except urllib.error.HTTPError as e:
+        if e.code == 410:
+            return jsonify({"ok": False, "error": "Logs expired or build not finished yet"}), 410
+        return jsonify({"ok": False, "error": f"HTTP {e.code}"}), e.code
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/trigger", methods=["POST"])
@@ -89,7 +171,8 @@ def api_trigger():
     """Dispatch the build workflow."""
     token = _gh_token()
     if not token:
-        return jsonify({"ok": False, "error": "FOGOS_GITHUB_TOKEN secret is not set. Add it in Replit Secrets."}), 400
+        return jsonify({"ok": False,
+                        "error": "FOGOS_GITHUB_TOKEN secret is not set. Add it in Replit Secrets."}), 400
 
     body = request.get_json(force=True, silent=True) or {}
     release    = "true" if body.get("release") else "false"
@@ -112,7 +195,7 @@ def api_trigger():
     )
 
     if status == 204:
-        return jsonify({"ok": True, "message": "Build triggered! Watch the Actions tab on GitHub."})
+        return jsonify({"ok": True, "message": "Build triggered! Watch the run appear below."})
 
     err_msg = (data or {}).get("message", f"HTTP {status}")
     hints = {
@@ -130,7 +213,6 @@ def api_token_status():
     token = _gh_token()
     if not token:
         return jsonify({"set": False})
-    # Validate by calling /user
     status, data = _gh_request("user")
     if status == 200 and data:
         return jsonify({"set": True, "user": data.get("login", ""), "valid": True})
