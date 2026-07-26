@@ -191,7 +191,7 @@ PYEOF
           # Copy kernel into AnyKernel3 directory
           cp "${KERNEL_PATH}" anykernel3/Image 2>/dev/null || true
 
-          ZIP_NAME="FogOS-Extreme-Gaming-v2.0-Holi-${DATE}"
+          ZIP_NAME="FogOS-Extreme-Gaming-v3-Holi-${DATE}"
           cd anykernel3
           zip -r9 "../release/${ZIP_NAME}.zip" . --exclude="*.git*"
           cd ..
@@ -234,7 +234,7 @@ PYEOF
           echo "Setting $REPO to public..."
           RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
             -X PATCH \
-            -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
+            -H "Authorization: Bearer ${{ secrets.FOGOS_GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/${REPO}" \
@@ -242,15 +242,15 @@ PYEOF
           if [ "$RESULT" = "200" ]; then
             echo "✅ Repository is now public — releases are downloadable by anyone."
           else
-            echo "⚠️ Could not set repo public (HTTP $RESULT). Check that GH_PAT has Administration: write scope."
+            echo "⚠️ Could not set repo public (HTTP $RESULT). Check that FOGOS_GITHUB_TOKEN has Administration: write scope."
           fi
 
       - name: 🚀 Create GitHub Release
         if: github.event_name == 'push' || github.event.inputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: FogOS-v2.0-${{ env.DATE }}
-          name: "👑 FogOS Extreme Gaming Kernel v2.0 — ${{ env.DATE }}"
+          tag_name: FogOS-v3-${{ env.DATE }}
+          name: "👑 FogOS Extreme Gaming Kernel v3 — ${{ env.DATE }}"
           body: |
             ## 👑 VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
 
@@ -298,4 +298,4 @@ PYEOF
             release/${{ env.ZIP_NAME }}.zip
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           draft: false
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.FOGOS_GITHUB_TOKEN }}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# FogOS Extreme Gaming Kernel — Build Script v2.0
+# FogOS Extreme Gaming Kernel — Build Script v3
 #
 # Developer : Prince · VirgoYT707
 # Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
@@ -49,7 +49,7 @@ BASE_DEFCONFIG="$(select_defconfig)"
 
 GAMING_FRAGMENT="${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_gaming.config"
 
-KERNEL_VERSION="FogOS-Extreme-Gaming-v2.0"
+KERNEL_VERSION="FogOS-Extreme-Gaming-v3"
 DATE="$(date +%Y%m%d-%H%M)"
 ZIP_NAME="${KERNEL_VERSION}-Holi-${DATE}.zip"
 JOBS="${JOBS:-$(nproc --all)}"
@@ -365,7 +365,7 @@ package_zip() {
 print_summary() {
   echo ""
   echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-  echo -e "${GREEN}║   FogOS Extreme Gaming Kernel v2.0 — BUILD DONE!    ║${NC}"
+  echo -e "${GREEN}║   FogOS Extreme Gaming Kernel v3 — BUILD DONE!    ║${NC}"
   echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
   echo -e "${GREEN}║  Device  : Motorola G45 (SM6375 / Holi)             ║${NC}"
   echo -e "${GREEN}║  Dev     : Prince (VirgoYT707)                      ║${NC}"
@@ -389,7 +389,7 @@ main() {
 
   echo ""
   echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-  echo -e "${CYAN}║       FogOS Extreme Gaming Kernel Builder v2.0       ║${NC}"
+  echo -e "${CYAN}║       FogOS Extreme Gaming Kernel Builder v3       ║${NC}"
   echo -e "${CYAN}║   Motorola G45 (SM6375/Holi) · Developer: VirgoYT   ║${NC}"
   echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
   echo ""
