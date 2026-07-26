@@ -57,6 +57,8 @@ jobs:
   build:
     name: 🔨 Build Kernel & Boot Image
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # required to create GitHub Releases and upload assets
 
     steps:
       # ──────────────────────────────────────────────────────────────────────
@@ -283,13 +285,44 @@ PYEOF
 
             ---
 
-            ### ✨ Gaming Features
-            - CPU locked to performance governor · all 8 cores at peak
-            - TCP BBR for lowest BGMI/PUBG ping
-            - BFQ I/O scheduler · ZRAM ZSTD compression
-            - SELinux Enforcing · banking apps work
+            ### 🆕 What's New in v3
 
-            See [FLASHING_GUIDE.md](FLASHING_GUIDE.md) for full instructions and recovery steps.
+            | Area | Improvement |
+            |------|-------------|
+            | 🔊 **Audio** | Full QDSP6 + WCD937x + Bolero stack restored — speaker, mic, earpiece, BT all working |
+            | 🎵 **Dolby Atmos** | QTI_PP post-processing enabled — spatial audio for BGMI footstep positioning |
+            | 🌡️ **Thermal** | 85°C gaming limit — sustained performance without hardware damage |
+            | 🎯 **Bullet Reg** | InputDispatcher → SCHED_FIFO RT-99 on CPU6/7 — shots register the frame you fire |
+            | 🔫 **Desync Fix** | SurfaceFlinger phase tightened (1ms/0.5ms) — visual and server hit land together |
+            | 🔵 **Gyroscope** | 2ms sensor path (~500Hz), big-core IRQ — smoother BGMI gyro aiming |
+            | 🖥️ **Rendering** | SurfaceFlinger RT-99 + Skia Vulkan + triple buffer + KGSL frame pacing — zero stutter |
+            | 🎮 **Profiles** | Balanced / Performance / Extreme Gaming — switch via `/data/local/fogos_profile` |
+            | 📡 **Network** | TCP BBR + UDP busy-poll 50µs + WLAN PS off — lowest possible ping |
+
+            ### 📱 Flash via Fastboot (Recommended)
+            > Requires **unlocked bootloader**.
+            ```bash
+            adb reboot bootloader
+            fastboot flash boot FogOS-boot-${{ env.DATE }}.img
+            fastboot reboot
+            ```
+
+            ### 📦 Flash via TWRP
+            1. Boot into TWRP
+            2. Install → `${{ env.ZIP_NAME }}.zip`
+            3. Wipe Cache + Dalvik → Reboot
+
+            ### 🎮 Switch Gaming Profile (after boot)
+            ```bash
+            # Extreme Gaming (default — max performance)
+            echo "extreme_gaming" > /data/local/fogos_profile
+
+            # Performance (balanced boost)
+            echo "performance" > /data/local/fogos_profile
+
+            # Balanced (daily driver)
+            echo "balanced" > /data/local/fogos_profile
+            ```
 
             ---
             *"I don't chase. I attract. I WIN."* — Prince, VirgoYT707
