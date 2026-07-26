@@ -166,14 +166,21 @@ PYEOF
       - name: 🔧 Build Kernel
         run: |
           echo "🚀 Building kernel with $(nproc) jobs..."
+          # pipefail ensures the make exit code survives the | tee pipe.
+          set -o pipefail
           make O=${OUT} \
             ARCH=${ARCH} \
             LLVM=1 LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             -j$(nproc) \
             2>&1 | tee build.log
-
-          echo "Build exit: $?"
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "Build exit: ${BUILD_EXIT}"
+          if [ "${BUILD_EXIT}" -ne 0 ]; then
+            echo "❌ Build failed — last errors:"
+            grep -iE "^.*error:|undefined reference|fatal:" build.log | tail -30 || true
+            exit "${BUILD_EXIT}"
+          fi
 
       # ──────────────────────────────────────────────────────────────────────
       - name: 🔍 Find Kernel Image

@@ -17,8 +17,21 @@ GITHUB_REPO   = "darkvirgoyt-beep/Motorola-g45-34-gaming-kernel-Fogos-new"
 GITHUB_BRANCH = "sixteen-qpr2"
 WORKFLOW_FILE  = "build.yml"
 
+# Token is read from (priority order):
+#   1. .fogos_token file  — set via the dashboard "Save Token" box
+#   2. FOGOS_GITHUB_TOKEN environment variable / Replit Secret
+_TOKEN_FILE = os.path.join(os.path.dirname(__file__), ".fogos_token")
 
-def _gh_token():
+
+def _gh_token() -> str:
+    # Check file-based override first (set from the dashboard UI)
+    try:
+        if os.path.isfile(_TOKEN_FILE):
+            tok = open(_TOKEN_FILE).read().strip()
+            if tok:
+                return tok
+    except OSError:
+        pass
     return os.environ.get("FOGOS_GITHUB_TOKEN", "")
 
 
@@ -214,9 +227,63 @@ def api_token_status():
     if not token:
         return jsonify({"set": False})
     status, data = _gh_request("user")
+    source = "file" if (os.path.isfile(_TOKEN_FILE) and open(_TOKEN_FILE).read().strip()) else "env"
     if status == 200 and data:
-        return jsonify({"set": True, "user": data.get("login", ""), "valid": True})
-    return jsonify({"set": True, "valid": False, "error": (data or {}).get("message", "")})
+        return jsonify({"set": True, "user": data.get("login", ""), "valid": True, "source": source})
+    return jsonify({"set": True, "valid": False, "source": source,
+                    "error": (data or {}).get("message", "")})
+
+
+@app.route("/api/save-token", methods=["POST"])
+def api_save_token():
+    """Save a GitHub PAT token to the local .fogos_token file."""
+    body = request.get_json(force=True, silent=True) or {}
+    token = (body.get("token") or "").strip()
+    if not token:
+        # Clearing the token — remove file
+        try:
+            if os.path.isfile(_TOKEN_FILE):
+                os.remove(_TOKEN_FILE)
+        except OSError:
+            pass
+        return jsonify({"ok": True, "message": "Token cleared."})
+
+    # Validate with GitHub before saving
+    req = urllib.request.Request(
+        "https://api.github.com/user",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "FogOS-Dashboard/3",
+        }
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            user = data.get("login", "")
+    except urllib.error.HTTPError as e:
+        body2 = {}
+        try:
+            body2 = json.loads(e.read())
+        except Exception:
+            pass
+        return jsonify({"ok": False,
+                        "error": f"GitHub rejected token (HTTP {e.code}): {body2.get('message', '')}"}), 400
+    except Exception as ex:
+        return jsonify({"ok": False, "error": str(ex)}), 500
+
+    # Save to file
+    try:
+        with open(_TOKEN_FILE, "w") as f:
+            f.write(token)
+        # Make it readable only by owner
+        os.chmod(_TOKEN_FILE, 0o600)
+    except OSError as ex:
+        return jsonify({"ok": False, "error": f"Could not save token file: {ex}"}), 500
+
+    return jsonify({"ok": True, "user": user,
+                    "message": f"Token saved — authenticated as @{user}"})
 
 
 if __name__ == "__main__":

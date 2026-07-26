@@ -49,6 +49,22 @@
     .info-item .val a{color:var(--cyan);text-decoration:none}
     .info-item .val a:hover{text-decoration:underline}
 
+    /* Token box */
+    .token-input-row{display:flex;gap:9px;align-items:stretch}
+    .token-input-row input{flex:1;background:#0d0f18;border:1px solid var(--border);border-radius:7px;padding:10px 13px;color:var(--text);font-size:.86rem;font-family:'Courier New',monospace;outline:none;transition:border-color .2s}
+    .token-input-row input:focus{border-color:var(--gold)}
+    .token-input-row input::placeholder{color:var(--muted)}
+    #save-token-btn{background:linear-gradient(90deg,var(--gold),var(--gold2));border:none;border-radius:7px;padding:0 18px;color:#000;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .2s}
+    #save-token-btn:hover{opacity:.88}
+    #save-token-btn:disabled{opacity:.4;cursor:not-allowed}
+    #clear-token-btn{background:none;border:1px solid var(--border);border-radius:7px;padding:0 12px;color:var(--muted);font-size:.82rem;cursor:pointer;transition:color .2s,border-color .2s}
+    #clear-token-btn:hover{color:var(--red);border-color:var(--red)}
+    #token-save-result{margin-top:10px;border-radius:6px;padding:8px 12px;font-size:.83rem;display:none}
+    #token-save-result.ok {background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.25);color:var(--green)}
+    #token-save-result.bad{background:rgba(255,23,68,.08); border:1px solid rgba(255,23,68,.25); color:#ff6b6b}
+    .token-hint{font-size:.74rem;color:var(--muted);margin-top:8px;line-height:1.5}
+    .token-hint code{background:#0d0f18;border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--cyan);font-size:.73rem}
+
     /* Form */
     .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     @media(max-width:560px){.form-grid{grid-template-columns:1fr}}
@@ -155,6 +171,22 @@
       <div class="info-item"><div class="key">Kernel</div><div class="val">Linux 5.4.302 · Android 16</div></div>
       <div class="info-item"><div class="key">Actions</div><div class="val"><a href="https://github.com/{{ repo }}/actions" target="_blank">View GitHub Actions →</a></div></div>
       <div class="info-item"><div class="key">Releases</div><div class="val"><a href="https://github.com/{{ repo }}/releases" target="_blank">View Releases →</a></div></div>
+    </div>
+  </div>
+
+  <!-- GitHub PAT Token Box -->
+  <div class="card">
+    <div class="card-title">🔑 GitHub PAT Token (Secret Box)</div>
+    <div class="token-input-row">
+      <input type="password" id="pat-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx — paste your GitHub PAT here"/>
+      <button id="save-token-btn" onclick="saveToken()">💾 Save Token</button>
+      <button id="clear-token-btn" onclick="clearToken()" title="Remove saved token">✕ Clear</button>
+    </div>
+    <div id="token-save-result"></div>
+    <div class="token-hint">
+      Token is stored securely on the server (owner-only file, never logged or sent anywhere except GitHub API validation).
+      Needs scopes: <code>repo</code> + <code>workflow</code> + <code>contents:write</code>.<br>
+      Generate at: <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--cyan)">github.com/settings/tokens/new</a>
     </div>
   </div>
 
@@ -266,7 +298,7 @@ function colorLog(raw){
   }).join('\n');
 }
 
-// ── Token ─────────────────────────────────────────────────────────────────────
+// ── Token Banner ──────────────────────────────────────────────────────────────
 async function checkToken(){
   const b=document.getElementById('token-banner');
   try{
@@ -274,15 +306,55 @@ async function checkToken(){
     b.style.display='flex';
     if(!d.set){
       b.className='bad';
-      b.innerHTML='⚠️ <strong>FOGOS_GITHUB_TOKEN not set.</strong> &nbsp;Go to <b>Replit → Tools → Secrets</b> and add it (needs <code>repo</code> + <code>workflow</code> scope).';
+      b.innerHTML='⚠️ <strong>No GitHub token set.</strong> &nbsp;Enter your PAT in the Secret Box below and click Save Token.';
     }else if(!d.valid){
       b.className='warn';
-      b.innerHTML=`⚠️ Token set but GitHub rejected it (${esc(d.error||'invalid')}). Check PAT scopes and expiry.`;
+      b.innerHTML=`⚠️ Token set but GitHub rejected it (${esc(d.error||'invalid')}). Check PAT scopes (<code>repo</code> + <code>workflow</code>) and expiry.`;
     }else{
       b.className='ok';
-      b.innerHTML=`✅ GitHub token valid — authenticated as <strong>@${esc(d.user)}</strong>`;
+      const src=d.source==='file'?'(saved via dashboard)':'(from Replit Secret)';
+      b.innerHTML=`✅ GitHub token valid — authenticated as <strong>@${esc(d.user)}</strong> <span style="opacity:.6;font-size:.8em">${src}</span>`;
     }
   }catch(e){console.error(e)}
+}
+
+// ── Token Save / Clear ────────────────────────────────────────────────────────
+async function saveToken(){
+  const btn=document.getElementById('save-token-btn');
+  const res=document.getElementById('token-save-result');
+  const tok=document.getElementById('pat-input').value.trim();
+  if(!tok){ showTokenResult('bad','Enter a token first.'); return; }
+  btn.disabled=true; btn.textContent='⏳ Validating…';
+  try{
+    const d=await(await fetch('/api/save-token',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:tok})
+    })).json();
+    if(d.ok){
+      showTokenResult('ok',`✅ ${esc(d.message)}`);
+      document.getElementById('pat-input').value='';
+      setTimeout(checkToken,600);
+    }else{
+      showTokenResult('bad',`❌ ${esc(d.error)}`);
+    }
+  }catch(e){ showTokenResult('bad','Network error: '+esc(e.message)); }
+  btn.disabled=false; btn.textContent='💾 Save Token';
+}
+
+async function clearToken(){
+  if(!confirm('Remove the saved token?')) return;
+  const d=await(await fetch('/api/save-token',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:''})
+  })).json();
+  showTokenResult(d.ok?'ok':'bad', d.ok?'Token cleared.':d.error);
+  setTimeout(checkToken,600);
+}
+
+function showTokenResult(cls,msg){
+  const el=document.getElementById('token-save-result');
+  el.className=cls; el.innerHTML=msg; el.style.display='block';
+  setTimeout(()=>{ el.style.display='none'; },5000);
 }
 
 // ── Trigger ───────────────────────────────────────────────────────────────────
@@ -350,7 +422,6 @@ async function loadRuns(){
         <div class="detail-body" id="body-log-${r.id}"   style="display:none"><div style="color:var(--muted);font-size:.82rem">Click to load log…</div></div>
       </div>
     `).join('');
-    // Re-expand if previously open
     if(expandedRunId){
       const row=document.getElementById(`row-${expandedRunId}`);
       if(row) openDetail(expandedRunId);
@@ -367,7 +438,6 @@ async function toggleDetail(runId){
     row.classList.remove('expanded'); det.classList.remove('open');
     expandedRunId=null;
   }else{
-    // Collapse any other
     document.querySelectorAll('.run-row.expanded').forEach(r=>{
       r.classList.remove('expanded');
       const d=document.getElementById(`detail-${r.id.replace('row-','')}`);
@@ -423,7 +493,6 @@ async function loadLog(runId){
       </div>
       ${totalNote}
       <div id="log-box">${colorLog(d.log)}</div>`;
-    // Scroll log to bottom
     const lb=document.getElementById('log-box');
     if(lb) lb.scrollTop=lb.scrollHeight;
   }catch(e){ el.innerHTML=`<div style="color:var(--red);font-size:.82rem">Error: ${esc(e.message)}</div>`; }
@@ -445,7 +514,6 @@ function showTab(runId,tab){
 // ── Init ──────────────────────────────────────────────────────────────────────
 checkToken();
 loadRuns();
-// Auto-refresh: runs every 30 s, steps if expanded every 15 s
 setInterval(loadRuns,30000);
 setInterval(()=>{ if(expandedRunId) loadSteps(expandedRunId); },15000);
 </script>
