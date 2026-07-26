@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FogOS Build Dashboard</title>
+  <style>
+    :root {
+      --bg:       #0a0c10;
+      --card:     #111318;
+      --border:   #1e2230;
+      --gold:     #f5c518;
+      --gold2:    #e0a800;
+      --cyan:     #00d4ff;
+      --green:    #00e676;
+      --red:      #ff1744;
+      --orange:   #ff9100;
+      --muted:    #5a6282;
+      --text:     #d4daf0;
+      --heading:  #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #0d0f18 0%, #131726 50%, #0a0c10 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .crown { font-size: 2rem; }
+    .header-text h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.5px;
+    }
+    .header-text p { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+    .badge {
+      margin-left: auto;
+      background: #1a1e2a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      text-align: right;
+    }
+    .badge strong { color: var(--text); display: block; }
+
+    /* ── Layout ──────────────────────────────────────────────────── */
+    main { max-width: 960px; margin: 32px auto; padding: 0 20px; }
+
+    /* ── Token Status Banner ─────────────────────────────────────── */
+    #token-banner {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      font-size: 0.88rem;
+      display: none;
+      align-items: center;
+      gap: 10px;
+    }
+    #token-banner.ok  { background: rgba(0,230,118,.08); border: 1px solid rgba(0,230,118,.3); color: var(--green); }
+    #token-banner.bad { background: rgba(255,23,68,.08);  border: 1px solid rgba(255,23,68,.3);  color: var(--red); }
+    #token-banner.warn{ background: rgba(255,145,0,.08);  border: 1px solid rgba(255,145,0,.3);  color: var(--orange); }
+
+    /* ── Card ────────────────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── Form ────────────────────────────────────────────────────── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 580px) { .form-grid { grid-template-columns: 1fr; } }
+
+    label { font-size: 0.82rem; color: var(--muted); display: block; margin-bottom: 6px; }
+
+    input[type=text] {
+      width: 100%;
+      background: #0d0f18;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 0.88rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input[type=text]:focus { border-color: var(--gold); }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #0d0f18;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .toggle-row input[type=checkbox] { accent-color: var(--gold); width: 16px; height: 16px; cursor: pointer; }
+    .toggle-label { font-size: 0.88rem; color: var(--text); }
+    .toggle-sub   { font-size: 0.76rem; color: var(--muted); margin-left: auto; }
+
+    /* ── Trigger Button ──────────────────────────────────────────── */
+    #trigger-btn {
+      margin-top: 20px;
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(90deg, var(--gold) 0%, var(--gold2) 100%);
+      border: none;
+      border-radius: 9px;
+      color: #000;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.4px;
+      transition: opacity .2s, transform .1s;
+    }
+    #trigger-btn:hover   { opacity: .9; }
+    #trigger-btn:active  { transform: scale(.99); }
+    #trigger-btn:disabled{ opacity: .4; cursor: not-allowed; }
+
+    /* ── Result box ──────────────────────────────────────────────── */
+    #trigger-result {
+      margin-top: 14px;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.88rem;
+      display: none;
+    }
+    #trigger-result.ok  { background: rgba(0,230,118,.08); border: 1px solid rgba(0,230,118,.25); color: var(--green); }
+    #trigger-result.bad { background: rgba(255,23,68,.08);  border: 1px solid rgba(255,23,68,.25);  color: #ff6b6b; }
+
+    /* ── Runs Table ──────────────────────────────────────────────── */
+    .runs-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    #refresh-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      padding: 5px 10px;
+      cursor: pointer;
+      transition: color .2s, border-color .2s;
+    }
+    #refresh-btn:hover { color: var(--cyan); border-color: var(--cyan); }
+
+    #runs-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .run-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #0d0f18;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      text-decoration: none;
+      transition: border-color .2s;
+    }
+    .run-row:hover { border-color: var(--gold); }
+
+    .run-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-success { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-failure { background: var(--red);   box-shadow: 0 0 6px var(--red); }
+    .dot-running { background: var(--cyan);  box-shadow: 0 0 6px var(--cyan); animation: pulse 1.2s infinite; }
+    .dot-pending { background: var(--muted); }
+    .dot-cancelled { background: var(--orange); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .run-title { font-size: 0.88rem; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .run-meta  { font-size: 0.74rem; color: var(--muted); flex-shrink: 0; }
+    .run-badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: capitalize;
+      flex-shrink: 0;
+    }
+    .badge-success   { background: rgba(0,230,118,.15); color: var(--green); }
+    .badge-failure   { background: rgba(255,23,68,.15);  color: var(--red); }
+    .badge-running   { background: rgba(0,212,255,.15);  color: var(--cyan); }
+    .badge-cancelled { background: rgba(255,145,0,.15);  color: var(--orange); }
+    .badge-queued    { background: rgba(90,98,130,.2);   color: var(--muted); }
+    .badge-skipped   { background: rgba(90,98,130,.2);   color: var(--muted); }
+
+    .runs-empty { text-align: center; color: var(--muted); font-size: 0.86rem; padding: 20px 0; }
+
+    /* ── Info grid ───────────────────────────────────────────────── */
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .info-item { background: #0d0f18; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+    .info-item .key { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+    .info-item .val { font-size: 0.9rem; color: var(--text); margin-top: 4px; font-weight: 500; word-break: break-all; }
+    .info-item .val a { color: var(--cyan); text-decoration: none; }
+    .info-item .val a:hover { text-decoration: underline; }
+
+    /* ── Footer ──────────────────────────────────────────────────── */
+    footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 32px 0; }
+    footer span { color: var(--gold); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="crown">👑</div>
+  <div class="header-text">
+    <h1>FogOS Build Dashboard</h1>
+    <p>Extreme Gaming Kernel · VirgoYT707 · Motorola G45 5G</p>
+  </div>
+  <div class="badge">
+    <strong>{{ repo.split('/')[1] }}</strong>
+    {{ branch }}
+  </div>
+</header>
+
+<main>
+
+  <!-- Token Banner -->
+  <div id="token-banner"></div>
+
+  <!-- Project Info -->
+  <div class="card">
+    <div class="card-title">📋 Project Info</div>
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="key">Repository</div>
+        <div class="val">
+          <a href="https://github.com/{{ repo }}" target="_blank">{{ repo }}</a>
+        </div>
+      </div>
+      <div class="info-item">
+        <div class="key">Branch</div>
+        <div class="val">{{ branch }}</div>
+      </div>
+      <div class="info-item">
+        <div class="key">Device</div>
+        <div class="val">Motorola G45 5G (SM6375 / Holi)</div>
+      </div>
+      <div class="info-item">
+        <div class="key">Kernel</div>
+        <div class="val">Linux 5.4.302 · Android 16</div>
+      </div>
+      <div class="info-item">
+        <div class="key">Actions</div>
+        <div class="val">
+          <a href="https://github.com/{{ repo }}/actions" target="_blank">View GitHub Actions →</a>
+        </div>
+      </div>
+      <div class="info-item">
+        <div class="key">Releases</div>
+        <div class="val">
+          <a href="https://github.com/{{ repo }}/releases" target="_blank">View Releases →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trigger Build -->
+  <div class="card">
+    <div class="card-title">🔨 Trigger Kernel Build</div>
+
+    <div class="form-grid">
+      <div>
+        <label>Version Tag (optional)</label>
+        <input type="text" id="version-tag" placeholder="e.g. v3, v3.1 — leave blank for auto-date"/>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <label style="margin-bottom:0">Options</label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-release"/>
+          <span class="toggle-label">Create GitHub Release</span>
+          <span class="toggle-sub">Publishes assets</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-prerelease"/>
+          <span class="toggle-label">Mark as Pre-release</span>
+          <span class="toggle-sub">Beta / test build</span>
+        </label>
+      </div>
+    </div>
+
+    <button id="trigger-btn" onclick="triggerBuild()">
+      🚀 &nbsp;Build FogOS Gaming Kernel v3
+    </button>
+
+    <div id="trigger-result"></div>
+  </div>
+
+  <!-- Recent Runs -->
+  <div class="card">
+    <div class="runs-header">
+      <div class="card-title" style="margin:0">⚡ Recent Build Runs</div>
+      <button id="refresh-btn" onclick="loadRuns()">↻ Refresh</button>
+    </div>
+    <div id="runs-list">
+      <div class="runs-empty">Loading…</div>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Built Different · <span>VirgoYT707</span> · Prince &nbsp;👑&nbsp;
+</footer>
+
+<script>
+// ── Token Status ──────────────────────────────────────────────────────────────
+async function checkToken() {
+  try {
+    const r = await fetch('/api/token-status');
+    const d = await r.json();
+    const banner = document.getElementById('token-banner');
+    banner.style.display = 'flex';
+    if (!d.set) {
+      banner.className = 'bad';
+      banner.innerHTML = '⚠️ <strong>FOGOS_GITHUB_TOKEN not set.</strong> &nbsp;Go to <b>Replit → Tools → Secrets</b> and add <code>FOGOS_GITHUB_TOKEN</code> with your GitHub PAT (needs <code>repo</code> + <code>workflow</code> scope). Then restart the app.';
+    } else if (!d.valid) {
+      banner.className = 'warn';
+      banner.innerHTML = `⚠️ Token is set but GitHub rejected it (${d.error || 'invalid'}). Check the PAT scopes and expiry.`;
+    } else {
+      banner.className = 'ok';
+      banner.innerHTML = `✅ GitHub token valid — authenticated as <strong>@${d.user}</strong>`;
+    }
+  } catch(e) {
+    console.error('Token check failed', e);
+  }
+}
+
+// ── Trigger Build ─────────────────────────────────────────────────────────────
+async function triggerBuild() {
+  const btn = document.getElementById('trigger-btn');
+  const result = document.getElementById('trigger-result');
+  btn.disabled = true;
+  btn.textContent = '⏳  Sending request…';
+  result.style.display = 'none';
+
+  const payload = {
+    release:     document.getElementById('opt-release').checked,
+    prerelease:  document.getElementById('opt-prerelease').checked,
+    version_tag: document.getElementById('version-tag').value.trim(),
+  };
+
+  try {
+    const r = await fetch('/api/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    result.style.display = 'block';
+    if (d.ok) {
+      result.className = 'ok';
+      result.innerHTML = `✅ ${d.message} <br><small style="opacity:.7">Refreshing runs in 5 s…</small>`;
+      setTimeout(loadRuns, 5000);
+    } else {
+      result.className = 'bad';
+      let msg = `❌ ${d.error}`;
+      if (d.hint) msg += `<br><small style="opacity:.8">Hint: ${d.hint}</small>`;
+      result.innerHTML = msg;
+    }
+  } catch(e) {
+    result.style.display = 'block';
+    result.className = 'bad';
+    result.innerHTML = `❌ Network error: ${e.message}`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🚀  Build FogOS Gaming Kernel v3';
+}
+
+// ── Recent Runs ───────────────────────────────────────────────────────────────
+function dotClass(run) {
+  if (run.status === 'completed') {
+    const c = run.conclusion;
+    if (c === 'success') return 'dot-success';
+    if (c === 'failure') return 'dot-failure';
+    if (c === 'cancelled') return 'dot-cancelled';
+    return 'dot-pending';
+  }
+  if (run.status === 'in_progress') return 'dot-running';
+  return 'dot-pending';
+}
+
+function badgeClass(run) {
+  if (run.status === 'in_progress') return 'badge-running';
+  if (run.status === 'queued')      return 'badge-queued';
+  const c = run.conclusion;
+  if (c === 'success')   return 'badge-success';
+  if (c === 'failure')   return 'badge-failure';
+  if (c === 'cancelled') return 'badge-cancelled';
+  if (c === 'skipped')   return 'badge-skipped';
+  return 'badge-queued';
+}
+
+function badgeLabel(run) {
+  if (run.status === 'in_progress') return '● building';
+  if (run.status === 'queued')      return 'queued';
+  return run.conclusion || run.status;
+}
+
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60)   return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60)   return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)   return `${h}h ago`;
+  return `${Math.floor(h/24)}d ago`;
+}
+
+async function loadRuns() {
+  const btn = document.getElementById('refresh-btn');
+  const list = document.getElementById('runs-list');
+  btn.textContent = '↻ Loading…';
+  try {
+    const r = await fetch('/api/runs');
+    const d = await r.json();
+    if (!d.ok || !d.runs.length) {
+      list.innerHTML = `<div class="runs-empty">${d.error || 'No runs yet — trigger your first build above!'}</div>`;
+      return;
+    }
+    list.innerHTML = d.runs.map(run => `
+      <a class="run-row" href="${run.html_url}" target="_blank">
+        <span class="run-dot ${dotClass(run)}"></span>
+        <span class="run-title">#${run.run_number} — ${escHtml(run.name || 'Build')}</span>
+        <span class="run-meta">${timeAgo(run.updated_at)}</span>
+        <span class="run-badge ${badgeClass(run)}">${badgeLabel(run)}</span>
+      </a>
+    `).join('');
+  } catch(e) {
+    list.innerHTML = `<div class="runs-empty">Could not load runs: ${e.message}</div>`;
+  }
+  btn.textContent = '↻ Refresh';
+}
+
+function escHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkToken();
+loadRuns();
+// Auto-refresh runs every 30 s
+setInterval(loadRuns, 30000);
+</script>
+</body>
+</html>
