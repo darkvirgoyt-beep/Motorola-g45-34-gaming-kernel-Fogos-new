@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: 'Create GitHub Release'
+        description: 'Create GitHub Release after build'
         required: true
         default: 'false'
         type: choice
@@ -38,13 +38,17 @@ on:
           - 'true'
           - 'false'
       prerelease:
-        description: 'Mark as pre-release (beta)'
+        description: 'Mark as pre-release / beta'
         required: false
         default: 'false'
         type: choice
         options:
           - 'false'
           - 'true'
+      version_tag:
+        description: 'Release version tag (e.g. v3, v3.1) — leave blank for auto date'
+        required: false
+        default: ''
 
 env:
   ARCH: arm64
@@ -221,6 +225,7 @@ PYEOF
       - name: 📤 Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
+
         with:
           name: build-log-${{ env.DATE }}
           path: build.log
@@ -247,12 +252,24 @@ PYEOF
             echo "⚠️ Could not set repo public (HTTP $RESULT). Check that FOGOS_GITHUB_TOKEN has Administration: write scope."
           fi
 
+      - name: 🏷️ Set Release Tag
+        if: github.event_name == 'push' || github.event.inputs.release == 'true'
+        run: |
+          VTAG="${{ github.event.inputs.version_tag }}"
+          if [ -n "$VTAG" ]; then
+            echo "RELEASE_TAG=${VTAG}-${DATE}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=👑 FogOS Extreme Gaming Kernel ${VTAG} — ${DATE}" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TAG=FogOS-v3-${DATE}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=👑 FogOS Extreme Gaming Kernel v3 — ${DATE}" >> $GITHUB_ENV
+          fi
+
       - name: 🚀 Create GitHub Release
         if: github.event_name == 'push' || github.event.inputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: FogOS-v3-${{ env.DATE }}
-          name: "👑 FogOS Extreme Gaming Kernel v3 — ${{ env.DATE }}"
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
           body: |
             ## 👑 VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
 
@@ -290,8 +307,10 @@ PYEOF
             | Area | Improvement |
             |------|-------------|
             | 🔊 **Audio** | Full QDSP6 + WCD937x + Bolero stack restored — speaker, mic, earpiece, BT all working |
-            | 🎵 **Dolby Atmos** | QTI_PP post-processing enabled — spatial audio for BGMI footstep positioning |
-            | 🌡️ **Thermal** | 85°C gaming limit — sustained performance without hardware damage |
+            | 🎵 **Dolby Atmos** | QTI_PP + MFD_WCD + REGMAP_WCD_IRQ enabled — no crash loop, spatial audio working |
+            | 📺 **Video Decode** | Venus hardware decoder enabled — Reels, YT Shorts, video calls no longer stutter |
+            | 🔐 **Widevine L1** | HDCP_QSEECOM enabled — HD Netflix/Hotstar/Prime now work |
+            | 🌡️ **Thermal** | 3 profiles: Balanced 75°C / Performance 85°C / Extreme Gaming 85°C |
             | 🎯 **Bullet Reg** | InputDispatcher → SCHED_FIFO RT-99 on CPU6/7 — shots register the frame you fire |
             | 🔫 **Desync Fix** | SurfaceFlinger phase tightened (1ms/0.5ms) — visual and server hit land together |
             | 🔵 **Gyroscope** | 2ms sensor path (~500Hz), big-core IRQ — smoother BGMI gyro aiming |
