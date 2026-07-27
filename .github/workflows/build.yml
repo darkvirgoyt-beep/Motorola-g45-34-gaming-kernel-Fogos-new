@@ -88,15 +88,15 @@ jobs:
           # Stub the missing module — it's only used for GKI certificate signing,
           # not for plain kernel repacking.
           sudo python3 - <<'PYEOF'
-import site, pathlib
-gki = pathlib.Path(site.getsitepackages()[0]) / "gki"
-gki.mkdir(exist_ok=True)
-(gki / "__init__.py").write_text("")
-(gki / "generate_gki_certificate.py").write_text(
-    "def generate_gki_certificate(*a, **k): return None\n"
-)
-print("gki stub installed at", gki)
-PYEOF
+          import site, pathlib
+          gki = pathlib.Path(site.getsitepackages()[0]) / "gki"
+          gki.mkdir(exist_ok=True)
+          (gki / "__init__.py").write_text("")
+          (gki / "generate_gki_certificate.py").write_text(
+              "def generate_gki_certificate(*a, **k): return None\n"
+          )
+          print("gki stub installed at", gki)
+          PYEOF
 
           # Smoke-test both tools
           unpack_bootimg --help 2>&1 | head -1

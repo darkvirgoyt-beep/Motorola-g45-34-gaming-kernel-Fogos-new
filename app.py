@@ -74,6 +74,11 @@ def index():
                            has_token=bool(_gh_token()))
 
 
+@app.route("/favicon.ico")
+def favicon():
+    return Response(status=204)
+
+
 @app.route("/api/runs")
 def api_runs():
     """Return the 10 most recent workflow runs."""
@@ -212,8 +217,11 @@ def api_trigger():
 
     err_msg = (data or {}).get("message", f"HTTP {status}")
     hints = {
-        401: "Token is invalid or missing 'repo' scope.",
-        403: "Token lacks permission — ensure it has Actions: write + Contents: write.",
+        401: "Token is invalid or missing repository access.",
+        403: (
+            "GitHub accepted repository access but rejected Actions dispatch. "
+            "Check Actions: Read and write for this exact repository and the repository Actions policy."
+        ),
         404: "Workflow not found or repo is private and token lacks access.",
         422: f"Branch '{GITHUB_BRANCH}' not found or workflow_dispatch not enabled.",
     }
@@ -229,7 +237,70 @@ def api_token_status():
     status, data = _gh_request("user")
     source = "file" if (os.path.isfile(_TOKEN_FILE) and open(_TOKEN_FILE).read().strip()) else "env"
     if status == 200 and data:
-        return jsonify({"set": True, "user": data.get("login", ""), "valid": True, "source": source})
+        repo_status, repo_data = _gh_request(f"repos/{GITHUB_REPO}")
+        workflow_status, workflow_data = _gh_request(
+            f"repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_FILE}"
+        )
+        repo_access = {}
+        if repo_status == 200 and repo_data:
+            repo_access = {
+                "accessible": True,
+                "permissions": repo_data.get("permissions") or {},
+                "private": repo_data.get("private"),
+            }
+        else:
+            repo_access = {
+                "accessible": False,
+                "status": repo_status,
+                "error": (repo_data or {}).get("message", "Repository access failed"),
+            }
+        workflow_access = {}
+        if workflow_status == 200 and workflow_data:
+            workflow_access = {
+                "accessible": True,
+                "state": workflow_data.get("state"),
+                "path": workflow_data.get("path"),
+            }
+        else:
+            workflow_access = {
+                "accessible": False,
+                "status": workflow_status,
+                "error": (workflow_data or {}).get("message", "Workflow access failed"),
+            }
+        actions_status, actions_data = _gh_request(
+            f"repos/{GITHUB_REPO}/actions/permissions"
+        )
+        workflow_perm_status, workflow_perm_data = _gh_request(
+            f"repos/{GITHUB_REPO}/actions/permissions/workflow"
+        )
+        return jsonify({
+            "set": True,
+            "user": data.get("login", ""),
+            "valid": True,
+            "source": source,
+            "repo": repo_access,
+            "workflow": workflow_access,
+            "actions": {
+                "status": actions_status,
+                "enabled": (actions_data or {}).get("enabled"),
+                "allowed_actions": (actions_data or {}).get("allowed_actions"),
+                "error": (actions_data or {}).get("message")
+                if actions_status != 200
+                else None,
+            },
+            "workflow_permissions": {
+                "status": workflow_perm_status,
+                "default_workflow_permissions": (workflow_perm_data or {}).get(
+                    "default_workflow_permissions"
+                ),
+                "can_approve_pull_request_reviews": (workflow_perm_data or {}).get(
+                    "can_approve_pull_request_reviews"
+                ),
+                "error": (workflow_perm_data or {}).get("message")
+                if workflow_perm_status != 200
+                else None,
+            },
+        })
     return jsonify({"set": True, "valid": False, "source": source,
                     "error": (data or {}).get("message", "")})
 
