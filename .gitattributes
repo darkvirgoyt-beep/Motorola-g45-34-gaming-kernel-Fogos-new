@@ -1,3 +1,4 @@
 *.c   diff=cpp
 *.h   diff=cpp
 attached_assets/boot_1784877675966.img filter=lfs diff=lfs merge=lfs -text
+attached_assets/bootstock_1785165713053.img filter=lfs diff=lfs merge=lfs -text
