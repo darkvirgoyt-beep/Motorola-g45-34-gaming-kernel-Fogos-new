@@ -1,84 +1,35 @@
-# FogOS Extreme Gaming Kernel — Build Dashboard
+# VirgoYT Gaming Kernel — FogOS Build Dashboard
 
-**Developer:** Prince · VirgoYT707  
-**Device:** Motorola G45 5G (SM6375 / Holi Platform)  
-**Kernel Base:** Linux 5.4.302 · Android 16  
-**GitHub Repo:** [darkvirgoyt-beep/Motorola-g45-34-gaming-kernel-Fogos-new](https://github.com/darkvirgoyt-beep/Motorola-g45-34-gaming-kernel-Fogos-new)  
-**Branch:** `sixteen-qpr2`
+## Project Overview
 
----
+A Flask web dashboard for triggering and monitoring GitHub Actions kernel builds for the **VirgoYT Gaming Kernel (FogOS Extreme Gaming Edition)** — a hand-tuned Android gaming kernel for Motorola G45 / G34 (SM6375 / Holi platform), Linux 5.4.302, Android 16.
 
-## How to run
+**The kernel compiles on GitHub Actions (remote CI), not locally.** This Replit app is the control panel.
 
-```bash
+## How to Run
+
+```
 python app.py
 ```
 
-The web dashboard serves at **port 5000** and lets you trigger GitHub Actions kernel builds with a button.
+The workflow `Start application` handles this automatically on port 5000.
 
----
+## Architecture
 
-## Required Secret
+- `app.py` — Flask backend; proxies GitHub API calls to trigger builds, fetch run status, and stream logs
+- `templates/index.html` — Single-page dashboard UI (vanilla JS, dark theme)
+- `.github/workflows/build.yml` — GitHub Actions workflow that cross-compiles the kernel (aarch64 toolchain) and produces a flashable ZIP/boot.img
+- `anykernel3/` — AnyKernel3 installer scripts packed into the release ZIP
+- `build_fogos.sh` / `build.config.*` — Kernel build configuration files
 
-Add your GitHub Personal Access Token as a Replit Secret:
+## GitHub Token
 
-| Key | Value |
-|-----|-------|
-| `FOGOS_GITHUB_TOKEN` | Your GitHub PAT |
+The dashboard needs a GitHub PAT with `repo` + `workflow` + `contents:write` scopes to trigger builds and read logs.
 
-**PAT scopes needed:** `repo` (full) + `workflow`  
-→ [Generate PAT here](https://github.com/settings/tokens)
+- **Stored as:** `FOGOS_GITHUB_TOKEN` Replit Secret (picked up automatically)
+- **Fallback:** paste directly into the "GitHub PAT Token" box in the dashboard UI (saved to `.fogos_token` file, owner-only)
 
-The dashboard shows a red banner if the token is missing or invalid.
+## User Preferences
 
----
-
-## Project structure
-
-| Path | Purpose |
-|------|---------|
-| `app.py` | Flask Build Dashboard web app |
-| `templates/index.html` | Dashboard UI |
-| `.github/workflows/build.yml` | GitHub Actions build pipeline |
-| `scripts/create_bootimg.sh` | Repacks stock boot.img with new kernel |
-| `scripts/trigger_build.sh` | CLI alternative to trigger builds |
-| `arch/arm64/configs/vendor/fogos_defconfig` | Kernel configuration |
-| `arch/arm64/configs/vendor/fogos_gaming.config` | Gaming optimisation fragment |
-| `anykernel3/` | TWRP flashable ZIP scripts |
-| `stock/boot.img` | Reference stock boot image for repacking |
-
----
-
-## Build outputs
-
-GitHub Actions produces:
-- `FogOS-boot-<DATE>.img` — fastboot-flashable boot image
-- `FogOS-Extreme-Gaming-v3-Holi-<DATE>.zip` — TWRP-flashable AnyKernel3 ZIP
-
-Flash via fastboot:
-```bash
-adb reboot bootloader
-fastboot flash boot FogOS-boot-<DATE>.img
-fastboot reboot
-```
-
----
-
-## Kernel features (v3)
-
-- Full Qualcomm QDSP6 audio stack — speaker, mic, earpiece, BT, Dolby Atmos
-- Venus hardware video decoder — fixes Reels / YT Shorts loading
-- Widevine L1 (HDCP_QSEECOM) — HD Netflix / Hotstar / Prime
-- 3 gaming profiles: Balanced / Performance / Extreme Gaming
-- Clang LLVM + LTO + ThinLTO compiler pipeline
-- TCP BBR + WLAN power-save off for lowest ping
-- WALT + SCHED_CASS scheduler
-- PREEMPT full + HZ_300
-
----
-
-## User preferences
-
-- Never hardcode tokens — always use Replit Secrets
-- Keep stock compatibility — do not remove vendor drivers
-- Preserve Dolby Atmos and Motorola charging drivers
+- Keep the existing Flask + vanilla JS stack — no framework migration needed.
+- Kernel source structure is standard Linux — do not restructure.
