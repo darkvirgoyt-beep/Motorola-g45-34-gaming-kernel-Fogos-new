@@ -325,12 +325,12 @@ jobs:
 
             ### 📱 Method 1 — Fastboot (Recommended)
 
-            > Requires **unlocked bootloader**. Works with AVB.
+            > Requires **unlocked bootloader**.
 
             ```bash
             # Download: FogOS-boot-${{ env.DATE }}.img
             adb reboot bootloader
-            fastboot flash boot FogOS-boot-${{ env.DATE }}.img
+            fastboot --disable-verity --disable-verification flash boot FogOS-boot-${{ env.DATE }}.img
             fastboot reboot
             ```
 
@@ -362,7 +362,7 @@ jobs:
             > Requires **unlocked bootloader**.
             ```bash
             adb reboot bootloader
-            fastboot flash boot FogOS-boot-${{ env.DATE }}.img
+            fastboot --disable-verity --disable-verification flash boot FogOS-boot-${{ env.DATE }}.img
             fastboot reboot
             ```
 

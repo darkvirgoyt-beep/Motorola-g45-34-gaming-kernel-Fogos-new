@@ -241,6 +241,80 @@ print(struct.unpack_from('<I', data, 36)[0])
 fi
 
 ###############################################################################
+# AVB — Preserve stock partition structure (size + footer)
+#
+# Motorola G45/G34 bootloader finds the AVB footer at a FIXED offset from the
+# end of the flash partition.  If the footer is absent or misaligned, fastboot
+# rejects the image with "AVB footer not found" even on an unlocked device.
+#
+# The fix:
+#   1. Pad the new boot.img to the exact stock partition size (96 MB).
+#   2. Copy the AVB vbmeta descriptor block from the stock image to the same
+#      byte offset in the new image.
+#   3. Copy the 64-byte AVB footer verbatim to the last 64 bytes.
+#
+# On an UNLOCKED bootloader the hash inside the vbmeta will not match the new
+# kernel — that is expected and intentional.  The bootloader skips hash
+# verification when unlocked and just checks footer presence/position.
+# Flash with --disable-verity so the dm-verity table is also disabled.
+###############################################################################
+if [ -f "$OUTPUT_IMG" ]; then
+  STOCK_SIZE=$(stat -c%s "$STOCK_IMG")
+
+  # Detect AVB footer: magic "AVBf" lives in the last 64 bytes of the image.
+  AVB_MAGIC=$(python3 -c "
+with open('$STOCK_IMG','rb') as f:
+    f.seek(-64,2); print(f.read(4))
+" 2>/dev/null || echo "")
+
+  if echo "$AVB_MAGIC" | grep -q "AVBf"; then
+    log "AVB footer detected — padding new image to match stock partition size..."
+
+    # Parse vbmeta_offset and vbmeta_size from the 64-byte AVB footer.
+    # Footer layout (all big-endian):
+    #   [0:4]   magic "AVBf"
+    #   [4:8]   version_major
+    #   [8:12]  version_minor
+    #   [12:20] original_image_size  (content before AVB data)
+    #   [20:28] vbmeta_offset        (offset of vbmeta descriptor in partition)
+    #   [28:36] vbmeta_size          (size of vbmeta descriptor)
+    read -r VBMETA_OFF VBMETA_SZ < <(python3 - "$STOCK_IMG" <<'AVBPY'
+import struct, sys
+with open(sys.argv[1], 'rb') as f:
+    f.seek(-64, 2)
+    footer = f.read(64)
+vbmeta_offset = struct.unpack_from('>Q', footer, 20)[0]
+vbmeta_size   = struct.unpack_from('>Q', footer, 28)[0]
+print(vbmeta_offset, vbmeta_size)
+AVBPY
+)
+
+    # 1. Pad new image to stock partition size (fills with zeros).
+    truncate -s "$STOCK_SIZE" "$OUTPUT_IMG"
+    ok "Padded to stock partition size: $(du -sh "$OUTPUT_IMG" | cut -f1)"
+
+    # 2. Overwrite the vbmeta descriptor region with the stock copy.
+    #    The stale hash is fine — unlocked bootloader ignores it.
+    if [ "${VBMETA_SZ:-0}" -gt 0 ] && [ "${VBMETA_OFF:-0}" -gt 0 ]; then
+      dd if="$STOCK_IMG" of="$OUTPUT_IMG" \
+         bs=1 skip="$VBMETA_OFF" count="$VBMETA_SZ" \
+         seek="$VBMETA_OFF" conv=notrunc 2>/dev/null
+      ok "AVB vbmeta block restored (offset=${VBMETA_OFF}, size=${VBMETA_SZ})"
+    fi
+
+    # 3. Restore AVB footer at the very end of the partition image.
+    local_footer_offset=$(( STOCK_SIZE - 64 ))
+    dd if="$STOCK_IMG" of="$OUTPUT_IMG" \
+       bs=1 skip="$local_footer_offset" count=64 \
+       seek="$local_footer_offset" conv=notrunc 2>/dev/null
+    ok "AVB footer restored at partition offset ${local_footer_offset}"
+
+  else
+    warn "No AVB footer found in stock image — skipping AVB padding step."
+  fi
+fi
+
+###############################################################################
 # RESULT
 ###############################################################################
 if [ -f "$OUTPUT_IMG" ]; then
@@ -248,18 +322,19 @@ if [ -f "$OUTPUT_IMG" ]; then
   SIZE_NEW="$(du -sh "$OUTPUT_IMG"  | cut -f1)"
   echo ""
   ok "Boot image created!"
-  ok "  Stock : $SIZE_ORIG"
-  ok "  New   : $SIZE_NEW"
-  ok "  Path  : $OUTPUT_IMG"
+  ok "  Stock  : $SIZE_ORIG"
+  ok "  New    : $SIZE_NEW"
+  ok "  Path   : $OUTPUT_IMG"
   echo ""
-  echo -e "${CYAN}━━━ Flash via Fastboot ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${CYAN}━━━ Flash via Fastboot (Motorola G45 / G34) ━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "  # Required: unlocked bootloader"
   echo -e "  adb reboot bootloader"
-  echo -e "  fastboot flash boot $OUTPUT_IMG"
-  echo -e "  fastboot reboot"
-  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-  echo ""
-  echo -e "${YELLOW}If you see 'FAILED (remote: AVB footer not found)':${NC}"
   echo -e "  fastboot --disable-verity --disable-verification flash boot $OUTPUT_IMG"
+  echo -e "  fastboot reboot"
+  echo -e ""
+  echo -e "  # --disable-verity  : turns off dm-verity on boot partition"
+  echo -e "  # --disable-verification : skips AVB hash check for new kernel"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
   echo ""
 else
   fail "Boot image creation failed — output not found."
