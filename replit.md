@@ -1,116 +1,35 @@
-# VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
+# VirgoYT Gaming Kernel — FogOS Build Dashboard
 
-**Device:** Motorola G45 / G34 (SM6375 — Holi Platform)  
-**Developer:** Prince · VirgoYT707  
-**Base:** Linux 5.4.302 · Android 16  
-**Version:** v2.0 Ultra
+## Project Overview
 
----
+A Flask web dashboard for triggering and monitoring GitHub Actions kernel builds for the **VirgoYT Gaming Kernel (FogOS Extreme Gaming Edition)** — a hand-tuned Android gaming kernel for Motorola G45 / G34 (SM6375 / Holi platform), Linux 5.4.302, Android 16.
 
-## Overview
+**The kernel compiles on GitHub Actions (remote CI), not locally.** This Replit app is the control panel.
 
-This is a hand-tuned Android kernel source for Motorola G45/G34 (codename: holi/fogos), built for maximum gaming performance in BGMI, PUBG Mobile, and Free Fire. Key features: performance governor by default, TCP BBR networking, BFQ I/O, ZRAM+ZSTD, WALT+CASS scheduler, and RT priorities for SurfaceFlinger.
+## How to Run
 
----
-
-## How to Build (on Replit)
-
-### Quick build
-```bash
-./build_fogos.sh
+```
+python app.py
 ```
 
-### Clean build
-```bash
-./build_fogos.sh --clean
-```
+The workflow `Start application` handles this automatically on port 5000.
 
-### Build + boot.img (requires stock_boot.img from your device)
-```bash
-# Place your device's stock boot image in the kernel root first, then:
-./build_fogos.sh --bootimg stock_boot.img
-```
+## Architecture
 
-### Interactive config editor
-```bash
-./build_fogos.sh --menuconfig
-```
+- `app.py` — Flask backend; proxies GitHub API calls to trigger builds, fetch run status, and stream logs
+- `templates/index.html` — Single-page dashboard UI (vanilla JS, dark theme)
+- `.github/workflows/build.yml` — GitHub Actions workflow that cross-compiles the kernel (aarch64 toolchain) and produces a flashable ZIP/boot.img
+- `anykernel3/` — AnyKernel3 installer scripts packed into the release ZIP
+- `build_fogos.sh` / `build.config.*` — Kernel build configuration files
 
-The **workflow** in Replit runs `./build_fogos.sh` automatically.
+## GitHub Token
 
----
+The dashboard needs a GitHub PAT with `repo` + `workflow` + `contents:write` scopes to trigger builds and read logs.
 
-## Toolchain (Auto-Detected)
-
-| Tool | Version |
-|------|---------|
-| Clang | 19.1.7 (via Nix) |
-| LLVM tools | llvm-ar, llvm-nm, llvm-objcopy, llvm-strip |
-| aarch64-unknown-linux-gnu-gcc | 13.3.0 (binutils/linking) |
-| LLD | ld.lld (LLVM linker) |
-
-Cross-compilation flags used:
-- `ARCH=arm64`
-- `CROSS_COMPILE=aarch64-unknown-linux-gnu-`
-- `LLVM=1 LLVM_IAS=1`
-- `CC=clang`
-
----
-
-## Defconfigs
-
-| File | Purpose |
-|------|---------|
-| `arch/arm64/configs/vendor/fogos_defconfig` | Full gaming defconfig (6817 options) |
-| `arch/arm64/configs/vendor/fogos_gaming.config` | Gaming optimization fragment |
-| `arch/arm64/configs/vendor/fogos_gaming_extreme.config` | Ultra extreme gaming additions (new) |
-
----
-
-## Output Files
-
-After a successful build, check the `release/` folder:
-
-- `FogOS-Extreme-Gaming-v2.0-Ultra-Holi-<date>.zip` — AnyKernel3 flashable zip (TWRP)
-- `FogOS-Extreme-Gaming-v2.0-Ultra-Holi-<date>-boot.img` — Direct flash via fastboot (if built)
-
-Build logs: `out/build.log`
-
----
-
-## Flash Instructions
-
-### Via TWRP (easiest)
-1. Boot into TWRP recovery
-2. Install → select ZIP from `release/`
-3. Swipe to flash → reboot
-
-### Via fastboot (boot.img)
-```bash
-adb reboot bootloader
-fastboot flash boot release/FogOS-Extreme-Gaming-v2.0-Ultra-Holi-<date>-boot.img
-fastboot reboot
-```
-
----
-
-## Key Gaming Tunings
-
-| Area | Tuning |
-|------|--------|
-| CPU | Performance governor · all 8 cores unlocked |
-| GPU | Adreno 619L · power collapse disabled |
-| Scheduler | WALT + SCHED_CASS · PREEMPT=y · HZ=300 |
-| Network | TCP BBR + FQ · WLAN power-save OFF |
-| Memory | ZRAM+ZSTD · swappiness=20 · 48MB LMK headroom |
-| I/O | BFQ · low_latency=1 · slice_idle=0 |
-| Security | SELinux enforcing (banking apps safe) |
-
----
+- **Stored as:** `FOGOS_GITHUB_TOKEN` Replit Secret (picked up automatically)
+- **Fallback:** paste directly into the "GitHub PAT Token" box in the dashboard UI (saved to `.fogos_token` file, owner-only)
 
 ## User Preferences
 
-- Keep kernel source structure intact (do not migrate or restructure)
-- Use clang/LLVM toolchain (LLVM=1) for all kernel builds
-- fogos_defconfig is the primary config; apply gaming fragments on top
-- Target: SM6375 / Holi / fogos device tree
+- Keep the existing Flask + vanilla JS stack — no framework migration needed.
+- Kernel source structure is standard Linux — do not restructure.

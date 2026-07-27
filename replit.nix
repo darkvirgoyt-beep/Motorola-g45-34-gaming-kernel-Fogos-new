@@ -1,19 +1,20 @@
 {pkgs}: {
   deps = [
-    pkgs.gcc-arm-embedded
-    pkgs.ccache
-    pkgs.unzip
-    pkgs.zip
-    pkgs.python3
-    pkgs.rsync
-    pkgs.cpio
+    pkgs.gcc
+    pkgs.glibc
+    pkgs.libelf
     pkgs.elfutils
-    pkgs.bc
+    pkgs.perl
+    pkgs.python3
+    pkgs.zip
+    pkgs.ncurses
     pkgs.openssl
     pkgs.bison
     pkgs.flex
-    pkgs.lld
+    pkgs.bc
+    pkgs.binutils
     pkgs.llvm
+    pkgs.lld
     pkgs.clang
   ];
 }

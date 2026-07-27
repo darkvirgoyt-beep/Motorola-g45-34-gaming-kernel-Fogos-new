@@ -7,8 +7,13 @@ obj-vdso := vgettimeofday.o datapage.o
 targets := $(obj-vdso) vdso.so vdso.so.dbg vdso.so.raw vdso.lds
 obj-vdso := $(addprefix $(obj)/, $(obj-vdso))
 
+# FogOS: Strip Clang 19+ flag that breaks ARM32 VDSO compilation.
+# -fzero-call-used-regs=used-gpr is not supported in this 32-bit VDSO context.
+KBUILD_CFLAGS := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))
+
 ccflags-y := -fPIC -fno-common -fno-builtin -fno-stack-protector
 ccflags-y += -DDISABLE_BRANCH_PROFILING
+ccflags-y += $(filter-out -fzero-call-used-regs=%,)
 
 ldflags-$(CONFIG_CPU_ENDIAN_BE8) := --be8
 ldflags-y := -Bsymbolic --no-undefined -soname=linux-vdso.so.1 \

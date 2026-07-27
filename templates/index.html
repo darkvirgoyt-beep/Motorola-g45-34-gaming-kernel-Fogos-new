@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FogOS Build Dashboard</title>
+  <style>
+    :root {
+      --bg:     #0a0c10;
+      --card:   #111318;
+      --border: #1e2230;
+      --gold:   #f5c518;
+      --gold2:  #e0a800;
+      --cyan:   #00d4ff;
+      --green:  #00e676;
+      --red:    #ff1744;
+      --orange: #ff9100;
+      --muted:  #5a6282;
+      --text:   #d4daf0;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+    /* Header */
+    header{background:linear-gradient(135deg,#0d0f18,#131726 50%,#0a0c10);border-bottom:1px solid var(--border);padding:18px 28px;display:flex;align-items:center;gap:14px}
+    .crown{font-size:1.8rem}
+    .header-text h1{font-size:1.4rem;font-weight:700;color:var(--gold)}
+    .header-text p{font-size:.78rem;color:var(--muted);margin-top:2px}
+    .hbadge{margin-left:auto;background:#1a1e2a;border:1px solid var(--border);border-radius:8px;padding:7px 12px;font-size:.76rem;color:var(--muted);text-align:right}
+    .hbadge strong{color:var(--text);display:block}
+
+    main{max-width:980px;margin:28px auto;padding:0 18px}
+
+    /* Banner */
+    #token-banner{border-radius:9px;padding:12px 16px;margin-bottom:20px;font-size:.86rem;display:none;align-items:center;gap:10px;line-height:1.5}
+    #token-banner.ok  {background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.3);color:var(--green)}
+    #token-banner.bad {background:rgba(255,23,68,.08); border:1px solid rgba(255,23,68,.3); color:var(--red)}
+    #token-banner.warn{background:rgba(255,145,0,.08); border:1px solid rgba(255,145,0,.3); color:var(--orange)}
+
+    /* Cards */
+    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:20px}
+    .card-title{font-size:.72rem;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--gold);margin-bottom:16px;display:flex;align-items:center;gap:7px}
+
+    /* Info grid */
+    .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+    .info-item{background:#0d0f18;border:1px solid var(--border);border-radius:7px;padding:10px 12px}
+    .info-item .key{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}
+    .info-item .val{font-size:.87rem;color:var(--text);margin-top:3px;font-weight:500;word-break:break-all}
+    .info-item .val a{color:var(--cyan);text-decoration:none}
+    .info-item .val a:hover{text-decoration:underline}
+
+    /* Token box */
+    .token-input-row{display:flex;gap:9px;align-items:stretch}
+    .token-input-row input{flex:1;background:#0d0f18;border:1px solid var(--border);border-radius:7px;padding:10px 13px;color:var(--text);font-size:.86rem;font-family:'Courier New',monospace;outline:none;transition:border-color .2s}
+    .token-input-row input:focus{border-color:var(--gold)}
+    .token-input-row input::placeholder{color:var(--muted)}
+    #save-token-btn{background:linear-gradient(90deg,var(--gold),var(--gold2));border:none;border-radius:7px;padding:0 18px;color:#000;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .2s}
+    #save-token-btn:hover{opacity:.88}
+    #save-token-btn:disabled{opacity:.4;cursor:not-allowed}
+    #clear-token-btn{background:none;border:1px solid var(--border);border-radius:7px;padding:0 12px;color:var(--muted);font-size:.82rem;cursor:pointer;transition:color .2s,border-color .2s}
+    #clear-token-btn:hover{color:var(--red);border-color:var(--red)}
+    #token-save-result{margin-top:10px;border-radius:6px;padding:8px 12px;font-size:.83rem;display:none}
+    #token-save-result.ok {background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.25);color:var(--green)}
+    #token-save-result.bad{background:rgba(255,23,68,.08); border:1px solid rgba(255,23,68,.25); color:#ff6b6b}
+    .token-hint{font-size:.74rem;color:var(--muted);margin-top:8px;line-height:1.5}
+    .token-hint code{background:#0d0f18;border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--cyan);font-size:.73rem}
+
+    /* Form */
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:560px){.form-grid{grid-template-columns:1fr}}
+    label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:5px}
+    input[type=text]{width:100%;background:#0d0f18;border:1px solid var(--border);border-radius:7px;padding:9px 11px;color:var(--text);font-size:.86rem;outline:none;transition:border-color .2s}
+    input[type=text]:focus{border-color:var(--gold)}
+    .toggle-row{display:flex;align-items:center;gap:9px;padding:9px 12px;background:#0d0f18;border:1px solid var(--border);border-radius:7px;cursor:pointer;user-select:none}
+    .toggle-row input[type=checkbox]{accent-color:var(--gold);width:15px;height:15px;cursor:pointer}
+    .toggle-label{font-size:.86rem;color:var(--text)}
+    .toggle-sub{font-size:.74rem;color:var(--muted);margin-left:auto}
+
+    /* Trigger button */
+    #trigger-btn{margin-top:18px;width:100%;padding:13px;background:linear-gradient(90deg,var(--gold),var(--gold2));border:none;border-radius:8px;color:#000;font-size:.97rem;font-weight:700;cursor:pointer;transition:opacity .2s,transform .1s}
+    #trigger-btn:hover{opacity:.9}
+    #trigger-btn:active{transform:scale(.99)}
+    #trigger-btn:disabled{opacity:.4;cursor:not-allowed}
+    #trigger-result{margin-top:12px;border-radius:7px;padding:10px 14px;font-size:.86rem;display:none}
+    #trigger-result.ok {background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.25);color:var(--green)}
+    #trigger-result.bad{background:rgba(255,23,68,.08); border:1px solid rgba(255,23,68,.25); color:#ff6b6b}
+
+    /* Runs */
+    .runs-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    #refresh-btn{background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);font-size:.76rem;padding:5px 9px;cursor:pointer;transition:color .2s,border-color .2s}
+    #refresh-btn:hover{color:var(--cyan);border-color:var(--cyan)}
+    #runs-list{display:flex;flex-direction:column;gap:6px}
+    .run-row{display:flex;align-items:center;gap:10px;background:#0d0f18;border:1px solid var(--border);border-radius:7px;padding:9px 12px;cursor:pointer;transition:border-color .2s;position:relative}
+    .run-row:hover{border-color:var(--gold)}
+    .run-row.expanded{border-color:var(--gold);border-bottom-left-radius:0;border-bottom-right-radius:0}
+    .run-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+    .dot-success{background:var(--green);box-shadow:0 0 5px var(--green)}
+    .dot-failure{background:var(--red);  box-shadow:0 0 5px var(--red)}
+    .dot-running{background:var(--cyan); box-shadow:0 0 5px var(--cyan);animation:pulse 1.2s infinite}
+    .dot-pending{background:var(--muted)}
+    .dot-cancelled{background:var(--orange)}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .run-title{font-size:.86rem;color:var(--text);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .run-meta{font-size:.72rem;color:var(--muted);flex-shrink:0}
+    .run-badge{font-size:.68rem;font-weight:600;padding:2px 7px;border-radius:4px;text-transform:capitalize;flex-shrink:0}
+    .badge-success  {background:rgba(0,230,118,.15);color:var(--green)}
+    .badge-failure  {background:rgba(255,23,68,.15); color:var(--red)}
+    .badge-running  {background:rgba(0,212,255,.15); color:var(--cyan)}
+    .badge-cancelled{background:rgba(255,145,0,.15); color:var(--orange)}
+    .badge-queued,.badge-skipped{background:rgba(90,98,130,.2);color:var(--muted)}
+    .run-chevron{color:var(--muted);font-size:.8rem;transition:transform .2s;flex-shrink:0}
+    .run-row.expanded .run-chevron{transform:rotate(180deg)}
+    .runs-empty{text-align:center;color:var(--muted);font-size:.84rem;padding:18px 0}
+
+    /* Detail panel */
+    .run-detail{background:#0a0c14;border:1px solid var(--gold);border-top:none;border-bottom-left-radius:7px;border-bottom-right-radius:7px;padding:0;overflow:hidden;display:none}
+    .run-detail.open{display:block}
+    .detail-tabs{display:flex;border-bottom:1px solid var(--border)}
+    .dtab{padding:9px 16px;font-size:.78rem;font-weight:600;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:color .2s,border-color .2s;user-select:none}
+    .dtab.active{color:var(--gold);border-bottom-color:var(--gold)}
+    .detail-body{padding:14px}
+
+    /* Steps */
+    .steps-list{display:flex;flex-direction:column;gap:5px}
+    .step-row{display:flex;align-items:center;gap:9px;padding:7px 10px;background:#0d0f18;border-radius:6px}
+    .step-num{font-size:.68rem;color:var(--muted);width:18px;text-align:center;flex-shrink:0}
+    .step-name{font-size:.82rem;color:var(--text);flex:1}
+    .step-dur{font-size:.7rem;color:var(--muted);flex-shrink:0}
+    .step-icon{font-size:.85rem;flex-shrink:0}
+
+    /* Log panel */
+    .log-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+    .log-toolbar span{font-size:.74rem;color:var(--muted)}
+    .log-refresh-btn{background:none;border:1px solid var(--border);border-radius:5px;color:var(--muted);font-size:.72rem;padding:3px 8px;cursor:pointer}
+    .log-refresh-btn:hover{color:var(--cyan);border-color:var(--cyan)}
+    #log-box{background:#060709;border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:'Courier New',monospace;font-size:.72rem;color:#a0aac0;line-height:1.55;max-height:420px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+    .log-error{color:#ff6b6b}
+    .log-warn {color:#ffb74d}
+    .log-ok   {color:#69f0ae}
+    .log-step {color:#40c4ff;font-weight:bold}
+
+    footer{text-align:center;color:var(--muted);font-size:.73rem;padding:28px 0}
+    footer span{color:var(--gold)}
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="crown">👑</div>
+  <div class="header-text">
+    <h1>FogOS Build Dashboard</h1>
+    <p>Extreme Gaming Kernel · VirgoYT707 · Motorola G45 5G</p>
+  </div>
+  <div class="hbadge">
+    <strong>{{ repo.split('/')[1] }}</strong>
+    {{ branch }}
+  </div>
+</header>
+
+<main>
+
+  <div id="token-banner"></div>
+
+  <!-- Project Info -->
+  <div class="card">
+    <div class="card-title">📋 Project Info</div>
+    <div class="info-grid">
+      <div class="info-item"><div class="key">Repository</div><div class="val"><a href="https://github.com/{{ repo }}" target="_blank">{{ repo }}</a></div></div>
+      <div class="info-item"><div class="key">Branch</div><div class="val">{{ branch }}</div></div>
+      <div class="info-item"><div class="key">Device</div><div class="val">Motorola G45 5G (SM6375 / Holi)</div></div>
+      <div class="info-item"><div class="key">Kernel</div><div class="val">Linux 5.4.302 · Android 16</div></div>
+      <div class="info-item"><div class="key">Actions</div><div class="val"><a href="https://github.com/{{ repo }}/actions" target="_blank">View GitHub Actions →</a></div></div>
+      <div class="info-item"><div class="key">Releases</div><div class="val"><a href="https://github.com/{{ repo }}/releases" target="_blank">View Releases →</a></div></div>
+    </div>
+  </div>
+
+  <!-- GitHub PAT Token Box -->
+  <div class="card">
+    <div class="card-title">🔑 GitHub PAT Token (Secret Box)</div>
+    <div class="token-input-row">
+      <input type="password" id="pat-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx — paste your GitHub PAT here"/>
+      <button id="save-token-btn" onclick="saveToken()">💾 Save Token</button>
+      <button id="clear-token-btn" onclick="clearToken()" title="Remove saved token">✕ Clear</button>
+    </div>
+    <div id="token-save-result"></div>
+    <div class="token-hint">
+      Token is stored securely on the server (owner-only file, never logged or sent anywhere except GitHub API validation).
+      Needs scopes: <code>repo</code> + <code>workflow</code> + <code>contents:write</code>.<br>
+      Generate at: <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--cyan)">github.com/settings/tokens/new</a>
+    </div>
+  </div>
+
+  <!-- Trigger -->
+  <div class="card">
+    <div class="card-title">🔨 Trigger Kernel Build</div>
+    <div class="form-grid">
+      <div>
+        <label>Version Tag (optional)</label>
+        <input type="text" id="version-tag" placeholder="e.g. v3, v3.1 — leave blank for auto-date"/>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <label style="margin-bottom:0">Options</label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-release"/>
+          <span class="toggle-label">Create GitHub Release</span>
+          <span class="toggle-sub">Publishes assets</span>
+        </label>
+        <label class="toggle-row">
+          <input type="checkbox" id="opt-prerelease"/>
+          <span class="toggle-label">Mark as Pre-release</span>
+          <span class="toggle-sub">Beta / test build</span>
+        </label>
+      </div>
+    </div>
+    <button id="trigger-btn" onclick="triggerBuild()">🚀 &nbsp;Build FogOS Gaming Kernel v3</button>
+    <div id="trigger-result"></div>
+  </div>
+
+  <!-- Runs -->
+  <div class="card">
+    <div class="runs-header">
+      <div class="card-title" style="margin:0">⚡ Recent Build Runs</div>
+      <button id="refresh-btn" onclick="loadRuns()">↻ Refresh</button>
+    </div>
+    <div id="runs-list"><div class="runs-empty">Loading…</div></div>
+  </div>
+
+</main>
+
+<footer>Built Different · <span>VirgoYT707</span> · Prince &nbsp;👑</footer>
+
+<script>
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])) }
+
+function timeAgo(iso){
+  const s=Math.floor((Date.now()-new Date(iso).getTime())/1000);
+  if(s<60)   return s+'s ago';
+  const m=Math.floor(s/60);
+  if(m<60)   return m+'m ago';
+  const h=Math.floor(m/60);
+  if(h<24)   return h+'h ago';
+  return Math.floor(h/24)+'d ago';
+}
+
+function durSec(start,end){
+  if(!start||!end) return '';
+  const s=Math.round((new Date(end)-new Date(start))/1000);
+  if(s<60) return s+'s';
+  return Math.floor(s/60)+'m '+s%60+'s';
+}
+
+function dotClass(r){
+  if(r.status==='in_progress') return 'dot-running';
+  if(r.status==='queued')      return 'dot-pending';
+  const c=r.conclusion;
+  if(c==='success')   return 'dot-success';
+  if(c==='failure')   return 'dot-failure';
+  if(c==='cancelled') return 'dot-cancelled';
+  return 'dot-pending';
+}
+
+function badgeClass(r){
+  if(r.status==='in_progress') return 'badge-running';
+  if(r.status==='queued')      return 'badge-queued';
+  const c=r.conclusion;
+  if(c==='success')   return 'badge-success';
+  if(c==='failure')   return 'badge-failure';
+  if(c==='cancelled') return 'badge-cancelled';
+  return 'badge-queued';
+}
+
+function badgeLabel(r){
+  if(r.status==='in_progress') return '● building';
+  if(r.status==='queued')      return 'queued';
+  return r.conclusion||r.status;
+}
+
+function stepIcon(step){
+  if(step.status==='completed'){
+    if(step.conclusion==='success') return '✅';
+    if(step.conclusion==='failure') return '❌';
+    if(step.conclusion==='skipped') return '⏭';
+    return '⬜';
+  }
+  if(step.status==='in_progress') return '🔄';
+  return '⏳';
+}
+
+function colorLog(raw){
+  return raw.split('\n').map(line=>{
+    const l=esc(line);
+    if(/error:|fatal:|undefined reference/i.test(line)) return `<span class="log-error">${l}</span>`;
+    if(/warning:|warn:/i.test(line))                    return `<span class="log-warn">${l}</span>`;
+    if(/✅|✓|success|complete/i.test(line))             return `<span class="log-ok">${l}</span>`;
+    if(/^##\[group\]|^##\[endgroup\]|^──|── /i.test(line)) return `<span class="log-step">${l}</span>`;
+    return l;
+  }).join('\n');
+}
+
+// ── Token Banner ──────────────────────────────────────────────────────────────
+async function checkToken(){
+  const b=document.getElementById('token-banner');
+  try{
+    const d=await(await fetch('/api/token-status')).json();
+    b.style.display='flex';
+    if(!d.set){
+      b.className='bad';
+      b.innerHTML='⚠️ <strong>No GitHub token set.</strong> &nbsp;Enter your PAT in the Secret Box below and click Save Token.';
+    }else if(!d.valid){
+      b.className='warn';
+      b.innerHTML=`⚠️ Token set but GitHub rejected it (${esc(d.error||'invalid')}). Check PAT scopes (<code>repo</code> + <code>workflow</code>) and expiry.`;
+    }else{
+      b.className='ok';
+      const src=d.source==='file'?'(saved via dashboard)':'(from Replit Secret)';
+      b.innerHTML=`✅ GitHub token valid — authenticated as <strong>@${esc(d.user)}</strong> <span style="opacity:.6;font-size:.8em">${src}</span>`;
+    }
+  }catch(e){console.error(e)}
+}
+
+// ── Token Save / Clear ────────────────────────────────────────────────────────
+async function saveToken(){
+  const btn=document.getElementById('save-token-btn');
+  const res=document.getElementById('token-save-result');
+  const tok=document.getElementById('pat-input').value.trim();
+  if(!tok){ showTokenResult('bad','Enter a token first.'); return; }
+  btn.disabled=true; btn.textContent='⏳ Validating…';
+  try{
+    const d=await(await fetch('/api/save-token',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:tok})
+    })).json();
+    if(d.ok){
+      showTokenResult('ok',`✅ ${esc(d.message)}`);
+      document.getElementById('pat-input').value='';
+      setTimeout(checkToken,600);
+    }else{
+      showTokenResult('bad',`❌ ${esc(d.error)}`);
+    }
+  }catch(e){ showTokenResult('bad','Network error: '+esc(e.message)); }
+  btn.disabled=false; btn.textContent='💾 Save Token';
+}
+
+async function clearToken(){
+  if(!confirm('Remove the saved token?')) return;
+  const d=await(await fetch('/api/save-token',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:''})
+  })).json();
+  showTokenResult(d.ok?'ok':'bad', d.ok?'Token cleared.':d.error);
+  setTimeout(checkToken,600);
+}
+
+function showTokenResult(cls,msg){
+  const el=document.getElementById('token-save-result');
+  el.className=cls; el.innerHTML=msg; el.style.display='block';
+  setTimeout(()=>{ el.style.display='none'; },5000);
+}
+
+// ── Trigger ───────────────────────────────────────────────────────────────────
+async function triggerBuild(){
+  const btn=document.getElementById('trigger-btn');
+  const res=document.getElementById('trigger-result');
+  btn.disabled=true; btn.textContent='⏳  Sending…'; res.style.display='none';
+  try{
+    const d=await(await fetch('/api/trigger',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        release:document.getElementById('opt-release').checked,
+        prerelease:document.getElementById('opt-prerelease').checked,
+        version_tag:document.getElementById('version-tag').value.trim()
+      })
+    })).json();
+    res.style.display='block';
+    if(d.ok){
+      res.className='ok';
+      res.innerHTML=`✅ ${esc(d.message)}<br><small style="opacity:.7">Refreshing runs in 6 s…</small>`;
+      setTimeout(loadRuns,6000);
+    }else{
+      res.className='bad';
+      let m=`❌ ${esc(d.error)}`;
+      if(d.hint) m+=`<br><small>${esc(d.hint)}</small>`;
+      res.innerHTML=m;
+    }
+  }catch(e){
+    res.style.display='block'; res.className='bad';
+    res.innerHTML=`❌ Network error: ${esc(e.message)}`;
+  }
+  btn.disabled=false; btn.textContent='🚀  Build FogOS Gaming Kernel v3';
+}
+
+// ── Runs & Detail ─────────────────────────────────────────────────────────────
+let expandedRunId=null;
+
+async function loadRuns(){
+  const btn=document.getElementById('refresh-btn');
+  const list=document.getElementById('runs-list');
+  btn.textContent='↻ Loading…';
+  try{
+    const d=await(await fetch('/api/runs')).json();
+    if(!d.ok||!d.runs.length){
+      list.innerHTML=`<div class="runs-empty">${esc(d.error||'No runs yet — trigger your first build above!')}</div>`;
+      return;
+    }
+    list.innerHTML=d.runs.map(r=>`
+      <div class="run-row" id="row-${r.id}" onclick="toggleDetail(${r.id})">
+        <span class="run-dot ${dotClass(r)}"></span>
+        <span class="run-title">#${r.run_number} — ${esc(r.name||'Build')}</span>
+        <span class="run-meta">${timeAgo(r.updated_at)}</span>
+        <span class="run-badge ${badgeClass(r)}">${badgeLabel(r)}</span>
+        <span class="run-chevron">▾</span>
+      </div>
+      <div class="run-detail" id="detail-${r.id}">
+        <div class="detail-tabs">
+          <div class="dtab active" id="tab-steps-${r.id}" onclick="showTab(${r.id},'steps')">Steps</div>
+          <div class="dtab"        id="tab-log-${r.id}"   onclick="showTab(${r.id},'log')">Live Log</div>
+          <div style="margin-left:auto;padding:5px 12px">
+            <a href="${esc(r.html_url)}" target="_blank" style="font-size:.72rem;color:var(--cyan);text-decoration:none">Open in GitHub ↗</a>
+          </div>
+        </div>
+        <div class="detail-body" id="body-steps-${r.id}"><div style="color:var(--muted);font-size:.82rem">Loading steps…</div></div>
+        <div class="detail-body" id="body-log-${r.id}"   style="display:none"><div style="color:var(--muted);font-size:.82rem">Click to load log…</div></div>
+      </div>
+    `).join('');
+    if(expandedRunId){
+      const row=document.getElementById(`row-${expandedRunId}`);
+      if(row) openDetail(expandedRunId);
+    }
+  }catch(e){list.innerHTML=`<div class="runs-empty">Error: ${esc(e.message)}</div>`}
+  btn.textContent='↻ Refresh';
+}
+
+async function toggleDetail(runId){
+  const row=document.getElementById(`row-${runId}`);
+  const det=document.getElementById(`detail-${runId}`);
+  if(!row||!det) return;
+  if(row.classList.contains('expanded')){
+    row.classList.remove('expanded'); det.classList.remove('open');
+    expandedRunId=null;
+  }else{
+    document.querySelectorAll('.run-row.expanded').forEach(r=>{
+      r.classList.remove('expanded');
+      const d=document.getElementById(`detail-${r.id.replace('row-','')}`);
+      if(d) d.classList.remove('open');
+    });
+    openDetail(runId);
+  }
+}
+
+async function openDetail(runId){
+  const row=document.getElementById(`row-${runId}`);
+  const det=document.getElementById(`detail-${runId}`);
+  row.classList.add('expanded'); det.classList.add('open');
+  expandedRunId=runId;
+  loadSteps(runId);
+}
+
+async function loadSteps(runId){
+  const el=document.getElementById(`body-steps-${runId}`);
+  if(!el) return;
+  el.innerHTML='<div style="color:var(--muted);font-size:.82rem">Loading…</div>';
+  try{
+    const d=await(await fetch(`/api/run/${runId}/jobs`)).json();
+    if(!d.ok||!d.jobs.length){ el.innerHTML='<div style="color:var(--muted);font-size:.82rem">No jobs yet.</div>'; return; }
+    const job=d.jobs[0];
+    const stepsHtml=job.steps.map(s=>`
+      <div class="step-row">
+        <span class="step-num">${s.number}</span>
+        <span class="step-icon">${stepIcon(s)}</span>
+        <span class="step-name">${esc(s.name)}</span>
+        <span class="step-dur">${durSec(s.started_at,s.completed_at)}</span>
+      </div>
+    `).join('');
+    el.innerHTML=`<div class="steps-list">${stepsHtml||'<div style="color:var(--muted)">No steps yet.</div>'}</div>`;
+  }catch(e){ el.innerHTML=`<div style="color:var(--red);font-size:.82rem">Error: ${esc(e.message)}</div>`; }
+}
+
+async function loadLog(runId){
+  const el=document.getElementById(`body-log-${runId}`);
+  if(!el) return;
+  el.innerHTML='<div style="color:var(--muted);font-size:.82rem">Fetching logs…</div>';
+  try{
+    const d=await(await fetch(`/api/run/${runId}/logs`)).json();
+    if(!d.ok){
+      el.innerHTML=`<div style="color:var(--orange);font-size:.82rem">⚠️ ${esc(d.error)}</div>`;
+      return;
+    }
+    const totalNote=d.total_lines>200?`<div style="color:var(--muted);font-size:.7rem;margin-bottom:6px">Showing last 200 of ${d.total_lines} lines</div>`:'';
+    el.innerHTML=`
+      <div class="log-toolbar">
+        <span>${d.total_lines} lines total</span>
+        <button class="log-refresh-btn" onclick="loadLog(${runId})">↻ Refresh</button>
+      </div>
+      ${totalNote}
+      <div id="log-box">${colorLog(d.log)}</div>`;
+    const lb=document.getElementById('log-box');
+    if(lb) lb.scrollTop=lb.scrollHeight;
+  }catch(e){ el.innerHTML=`<div style="color:var(--red);font-size:.82rem">Error: ${esc(e.message)}</div>`; }
+}
+
+function showTab(runId,tab){
+  const tabs=['steps','log'];
+  tabs.forEach(t=>{
+    const tb=document.getElementById(`tab-${t}-${runId}`);
+    const bd=document.getElementById(`body-${t}-${runId}`);
+    if(!tb||!bd) return;
+    const active=t===tab;
+    tb.classList.toggle('active',active);
+    bd.style.display=active?'block':'none';
+    if(active&&t==='log') loadLog(runId);
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkToken();
+loadRuns();
+setInterval(loadRuns,30000);
+setInterval(()=>{ if(expandedRunId) loadSteps(expandedRunId); },15000);
+</script>
+</body>
+</html>

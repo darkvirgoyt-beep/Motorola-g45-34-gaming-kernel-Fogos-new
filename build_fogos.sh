@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
-# Build Script (Replit / NixOS Edition)
+# FogOS Extreme Gaming Kernel — Build Script v3
 #
 # Developer : Prince · VirgoYT707
 # Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
@@ -9,400 +8,423 @@
 #
 # "I don't chase. I attract. I WIN." — VirgoYT707
 #
-# TOOLCHAIN (auto-detected on Replit):
-#   - Clang 19 (LLVM) via Nix
-#   - aarch64-unknown-linux-gnu-* (binutils) via Nix
-#
 # USAGE:
 #   ./build_fogos.sh              # Full build
 #   ./build_fogos.sh --clean      # Clean before build
 #   ./build_fogos.sh --menuconfig # Open menuconfig
-#   ./build_fogos.sh --bootimg /path/to/stock_boot.img  # Build boot.img too
+#   ./build_fogos.sh --ci         # CI mode (auto-detect toolchain, no prompts)
 ###############################################################################
 
-set -eo pipefail
+# When sourced by the unit-test suite (tests/build_fogos.bats) with
+# FOGOS_LIB_ONLY=1, only the function definitions are loaded and the build is
+# not executed. In every normal invocation this variable is unset and the
+# script behaves exactly as before.
+[ "${FOGOS_LIB_ONLY:-0}" = "1" ] || set -euo pipefail
 
 ###############################################################################
-# CONFIGURATION
+# DIRECTORIES
 ###############################################################################
-KERNEL_DIR="$(pwd)"
+KERNEL_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT_DIR="${KERNEL_DIR}/out"
 ANYKERNEL_DIR="${KERNEL_DIR}/anykernel3"
 ZIP_DIR="${KERNEL_DIR}/release"
 
-# Toolchain — auto-detected for Replit/NixOS
-CLANG_BIN="$(dirname "$(which clang)")"
-LLVM_BIN="$(dirname "$(which llvm-ar)")"
-GCC_AARCH64_BIN="/nix/store/3qwn7dr7n9vhm07bkavlqyxilhnj6b27-aarch64-unknown-linux-gnu-gcc-wrapper-13.3.0/bin"
-
-# Cross-compile settings
+###############################################################################
+# BUILD SETTINGS
+###############################################################################
 ARCH="arm64"
 SUBARCH="arm64"
-CROSS_COMPILE="aarch64-unknown-linux-gnu-"
-CLANG_TRIPLE="aarch64-linux-gnu-"
 
-# Defconfig — full pre-tuned gaming defconfig
-DEFCONFIG="vendor/fogos_defconfig"
+# Primary defconfig: use vendor/fogos_defconfig if it exists, else holi-qgki
+select_defconfig() {
+  if [ -f "${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_defconfig" ]; then
+    echo "vendor/fogos_defconfig"
+  elif [ -f "${KERNEL_DIR}/arch/arm64/configs/vendor/holi-qgki_defconfig" ]; then
+    echo "vendor/holi-qgki_defconfig"
+  else
+    echo "defconfig"
+  fi
+}
+BASE_DEFCONFIG="$(select_defconfig)"
+
 GAMING_FRAGMENT="${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_gaming.config"
 GAMING_EXTREME_FRAGMENT="${KERNEL_DIR}/arch/arm64/configs/vendor/fogos_gaming_extreme.config"
 
-# Branding
-KERNEL_VERSION="FogOS-Extreme-Gaming-v2.0-Ultra"
+KERNEL_VERSION="FogOS-Extreme-Gaming-v3"
 DATE="$(date +%Y%m%d-%H%M)"
 ZIP_NAME="${KERNEL_VERSION}-Holi-${DATE}.zip"
-
-JOBS=$(nproc --all)
-
-# boot.img support (pass --bootimg <stock_boot.img>)
-STOCK_BOOT_IMG=""
-DO_BOOTIMG=false
+JOBS="${JOBS:-$(nproc --all)}"
 
 ###############################################################################
 # COLORS
 ###############################################################################
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; NC='\033[0m'
 
 log_info()    { echo -e "${CYAN}[FogOS] $1${NC}"; }
 log_success() { echo -e "${GREEN}[FogOS] ✓ $1${NC}"; }
 log_warn()    { echo -e "${YELLOW}[FogOS] ⚠ $1${NC}"; }
 log_error()   { echo -e "${RED}[FogOS] ✗ $1${NC}"; exit 1; }
-log_step()    { echo -e "${MAGENTA}[FogOS] ━━ $1 ━━${NC}"; }
+
+# Echo the first kernel image produced by the build, or nothing if none exist.
+# Shared by build_kernel (verify) and package_zip (copy) so the candidate
+# list lives in exactly one place.
+find_kernel_image() {
+  local img
+  for img in \
+    "${OUT_DIR}/arch/arm64/boot/Image" \
+    "${OUT_DIR}/arch/arm64/boot/Image.gz" \
+    "${OUT_DIR}/arch/arm64/boot/Image.lz4" \
+    "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb"; do
+    if [ -f "$img" ]; then
+      echo "$img"
+      return 0
+    fi
+  done
+  return 0
+}
 
 ###############################################################################
 # ARGUMENT PARSING
 ###############################################################################
 DO_CLEAN=false
 DO_MENUCONFIG=false
-for ARG in "$@"; do
+CI_MODE=false
+
+parse_args() {
+  DO_CLEAN=false
+  DO_MENUCONFIG=false
+  CI_MODE=false
+  for ARG in "$@"; do
     case "$ARG" in
-        --clean)      DO_CLEAN=true ;;
-        --menuconfig) DO_MENUCONFIG=true ;;
-        --bootimg)    DO_BOOTIMG=true ;;
-        --help|-h)
-            echo "Usage: $0 [--clean] [--menuconfig] [--bootimg]"
-            echo "  --bootimg : also build boot.img (place stock_boot.img in kernel dir first)"
-            exit 0
-            ;;
-        *)
-            if $DO_BOOTIMG && [ -z "$STOCK_BOOT_IMG" ] && [ -f "$ARG" ]; then
-                STOCK_BOOT_IMG="$ARG"
-            fi
-            ;;
+      --clean)      DO_CLEAN=true ;;
+      --menuconfig) DO_MENUCONFIG=true ;;
+      --ci)         CI_MODE=true ;;
+      --help|-h)
+        echo "Usage: $0 [--clean] [--menuconfig] [--ci]"
+        return 2
+        ;;
     esac
-done
-
-###############################################################################
-# TOOLCHAIN SETUP
-###############################################################################
-setup_toolchain() {
-    log_step "Toolchain Setup"
-
-    if ! command -v clang &>/dev/null; then
-        log_error "clang not found! Run: nix-env -iA nixpkgs.clang"
-    fi
-
-    if [ ! -d "$GCC_AARCH64_BIN" ]; then
-        log_warn "Expected GCC aarch64 wrapper not found at $GCC_AARCH64_BIN"
-        log_warn "Searching for alternative..."
-        ALT=$(find /nix/store -maxdepth 2 -name "aarch64-unknown-linux-gnu-gcc" 2>/dev/null | head -1)
-        if [ -n "$ALT" ]; then
-            GCC_AARCH64_BIN="$(dirname "$ALT")"
-            log_info "Found at: $GCC_AARCH64_BIN"
-        else
-            log_warn "No aarch64 GCC found — using pure LLVM mode"
-            CROSS_COMPILE=""
-        fi
-    fi
-
-    # Add toolchain bins to PATH
-    export PATH="${CLANG_BIN}:${LLVM_BIN}:${GCC_AARCH64_BIN}:${PATH}"
-
-    log_success "Clang:   $(clang --version | head -1)"
-    log_success "LLD:     $(ld.lld --version | head -1)"
-    log_success "LLVM-AR: $(llvm-ar --version | head -1)"
-    if [ -n "$CROSS_COMPILE" ]; then
-        log_success "GCC:     $(${CROSS_COMPILE}gcc --version | head -1)"
-    fi
+  done
 }
 
 ###############################################################################
-# COMMON MAKE FLAGS
+# TOOLCHAIN AUTO-DETECTION
 ###############################################################################
-MAKE_FLAGS=(
+setup_toolchain() {
+  log_info "Detecting toolchain..."
+
+  # --- Clang detection ---
+  # Priority: custom dir → unwrapped system clang → versioned wrappers
+  #
+  # NixOS ships a "clang-wrapper" that explicitly refuses cross-compilation
+  # to a different target (--target=aarch64-linux-gnu on an x86_64 host)
+  # and prints "cc-wrapper is not designed with multi-target compilers in
+  # mind".  For kernel cross-builds we need the *unwrapped* clang binary,
+  # obtained via --print-prog-name=clang.
+  CLANG_BIN=""
+  for candidate in \
+    "${HOME}/toolchains/clang/bin" \
+    "$(dirname "$(command -v clang-19 2>/dev/null)" 2>/dev/null)" \
+    "$(dirname "$(command -v clang-20 2>/dev/null)" 2>/dev/null)" \
+    "$(dirname "$(command -v clang-18 2>/dev/null)" 2>/dev/null)" \
+    "$(dirname "$(command -v clang 2>/dev/null)" 2>/dev/null)"; do
+    [ -n "$candidate" ] && [ -d "$candidate" ] && \
+      { CLANG_BIN="$candidate"; break; }
+  done
+
+  [ -z "$CLANG_BIN" ] && log_error "No clang found. Install clang-19 or set HOME/toolchains/clang."
+
+  export PATH="${CLANG_BIN}:${PATH}"
+
+  CLANG_EXEC="$(ls "${CLANG_BIN}"/clang* 2>/dev/null | grep -E 'clang(-[0-9]+)?$' | head -1)"
+  [ -z "$CLANG_EXEC" ] && CLANG_EXEC="clang"
+
+  # Resolve the real (unwrapped) binary so cross-compilation works on NixOS.
+  CLANG_REAL="$("${CLANG_EXEC}" --print-prog-name=clang 2>/dev/null || true)"
+  if [ -x "${CLANG_REAL}" ] && [ "${CLANG_REAL}" != "${CLANG_EXEC}" ]; then
+    log_info "Using unwrapped clang for cross-compilation: ${CLANG_REAL}"
+    # Prepend the unwrapped clang's bin dir so llvm-* tools are also unwrapped.
+    UNWRAPPED_BIN="$(dirname "${CLANG_REAL}")"
+    export PATH="${UNWRAPPED_BIN}:${PATH}"
+    CLANG_EXEC="${CLANG_REAL}"
+  fi
+  CLANG_BASENAME="$(basename "${CLANG_EXEC}")"
+
+  CLANG_VER="$("${CLANG_EXEC}" --version 2>/dev/null | head -1 || echo 'unknown')"
+  log_info "Clang: ${CLANG_VER}"
+
+  # --- Cross-compiler detection ---
+  # Verify each candidate prefix actually has a gcc binary before accepting it.
+  CROSS=""
+  for pfx in \
+    "${HOME}/toolchains/gcc/aarch64-linux-android-4.9/bin/aarch64-linux-android-" \
+    "$(command -v aarch64-linux-gnu-gcc 2>/dev/null | sed 's/gcc$//')" \
+    "$(command -v aarch64-linux-android-gcc 2>/dev/null | sed 's/gcc$//')"; do
+    [ -n "$pfx" ] && [ -x "${pfx}gcc" ] && { CROSS="$pfx"; break; }
+  done
+
+  CROSS32=""
+  for pfx in \
+    "${HOME}/toolchains/gcc/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-" \
+    "$(command -v arm-linux-gnueabihf-gcc 2>/dev/null | sed 's/gcc$//')" \
+    "$(command -v arm-linux-androideabi-gcc 2>/dev/null | sed 's/gcc$//')"; do
+    [ -n "$pfx" ] && [ -x "${pfx}gcc" ] && { CROSS32="$pfx"; break; }
+  done
+
+  log_info "CROSS_COMPILE  : ${CROSS:-none (LLVM-only mode)}"
+  log_info "CROSS_COMPILE_ARM32: ${CROSS32:-none}"
+
+  # --- Export Make variables ---
+  export CROSS_COMPILE="${CROSS:-aarch64-linux-gnu-}"
+  export CROSS_COMPILE_ARM32="${CROSS32:-arm-linux-gnueabihf-}"
+
+  # LLVM=1 tells the kernel Makefile to use clang/lld/llvm-ar etc.
+  # HOSTCC: use gcc for host tools (fixdep, etc.) — gcc carries the glibc
+  # sysroot in Nix/NixOS; clang alone does not find sys/types.h there.
+  HOSTCC_BIN="$(command -v gcc 2>/dev/null || echo gcc)"
+
+  # NixOS ships clang builtin headers (stdarg.h etc.) inside the *wrapper*
+  # package's resource-root, not inside the raw clang store path.  When we
+  # use the raw (unwrapped) clang as CC, we must tell it where to find those
+  # headers via -resource-dir; otherwise target-side files such as
+  # scripts/mod/devicetable-offsets.s fail with 'stdarg.h not found'.
+  # We detect it from the wrapper's --print-resource-dir (the wrapper knows
+  # where its resource-root is even if the raw binary does not).
+  WRAPPER_CLANG="$(command -v clang 2>/dev/null || true)"
+  CLANG_RESOURCE_FLAGS=""
+  if [ -n "${WRAPPER_CLANG}" ]; then
+    WRAPPER_RDIR="$("${WRAPPER_CLANG}" --print-resource-dir 2>/dev/null || true)"
+    if [ -f "${WRAPPER_RDIR}/include/stdarg.h" ]; then
+      CLANG_RESOURCE_FLAGS="-resource-dir ${WRAPPER_RDIR}"
+      log_info "Clang resource dir: ${WRAPPER_RDIR}"
+    fi
+  fi
+
+  MAKE_FLAGS=(
+    O="${OUT_DIR}"
     ARCH="${ARCH}"
     SUBARCH="${SUBARCH}"
-    CC="clang"
-    CLANG_TRIPLE="${CLANG_TRIPLE}"
-    CROSS_COMPILE="${CROSS_COMPILE}"
     LLVM=1
     LLVM_IAS=1
-    AR="llvm-ar"
-    NM="llvm-nm"
-    OBJCOPY="llvm-objcopy"
-    OBJDUMP="llvm-objdump"
-    STRIP="llvm-strip"
-    O="${OUT_DIR}"
+    CC="${CLANG_BASENAME}"
+    HOSTCC="${HOSTCC_BIN}"
+    LD=ld.lld
+    AR=llvm-ar
+    NM=llvm-nm
+    OBJCOPY=llvm-objcopy
+    OBJDUMP=llvm-objdump
+    STRIP=llvm-strip
+    # Pin the clang target triple to aarch64-linux-gnu so the kernel uses
+    # --target=aarch64-linux-gnu (not android) in all CC invocations.
+    CLANG_TRIPLE=aarch64-linux-gnu-
+    CROSS_COMPILE="${CROSS_COMPILE}"
+    CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32}"
     -j"${JOBS}"
-)
+  )
+
+  # Append resource-dir flag so all target-side CC calls can find builtins.
+  [ -n "${CLANG_RESOURCE_FLAGS}" ] && \
+    MAKE_FLAGS+=( KCFLAGS="${CLANG_RESOURCE_FLAGS}" )
+
+  log_success "Toolchain ready."
+}
+
+###############################################################################
+# VDSO32 CLANG FIX
+# Clang 19+ may emit -fzero-call-used-regs=used-gpr which breaks ARM32 VDSO.
+# Patch the ARM VDSO Makefile to strip that flag if not already patched.
+###############################################################################
+apply_vdso32_fix() {
+  local VDSO_MK="${KERNEL_DIR}/arch/arm/vdso/Makefile"
+  if [ -f "$VDSO_MK" ] && ! grep -q "zero-call-used-regs" "$VDSO_MK"; then
+    log_info "Applying VDSO32 Clang 19 compatibility fix..."
+    sed -i 's/^ccflags-y :=.*/# FogOS clang fix: strip -fzero-call-used-regs\nKBUILD_CFLAGS := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))\n\0/' \
+      "$VDSO_MK" 2>/dev/null || true
+
+    # Explicit approach: prepend the filter line
+    if ! grep -q "filter-out -fzero-call-used-regs" "$VDSO_MK"; then
+      sed -i '1a # FogOS: strip clang 19 flag incompatible with ARM32 VDSO\nKBUILD_CFLAGS := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))\nccflags-y := $(filter-out -fzero-call-used-regs=%,$(KBUILD_CFLAGS))' \
+        "$VDSO_MK" 2>/dev/null || true
+    fi
+    log_success "VDSO32 fix applied."
+  fi
+}
 
 ###############################################################################
 # CLEAN
 ###############################################################################
 do_clean() {
-    log_step "Clean Build"
-    make "${MAKE_FLAGS[@]}" mrproper
-    rm -rf "${OUT_DIR}"
-    log_success "Cleaned output directory"
+  log_info "Cleaning output directory..."
+  rm -rf "${OUT_DIR}"
+  # Remove the specific generated files the kernel's outputmakefile check
+  # looks for in the source root.  Running full 'mrproper' on a large tree
+  # can take minutes; targeted deletion is instant and sufficient.
+  rm -f  "${KERNEL_DIR}/.config"
+  rm -f  "${KERNEL_DIR}/scripts/basic/fixdep"
+  rm -rf "${KERNEL_DIR}/include/generated"
+  rm -rf "${KERNEL_DIR}/include/config"
+  log_success "Clean done."
 }
 
 ###############################################################################
 # MENUCONFIG
 ###############################################################################
 do_menuconfig() {
-    log_step "menuconfig"
-    mkdir -p "${OUT_DIR}"
-    make "${MAKE_FLAGS[@]}" "${DEFCONFIG}"
-    make "${MAKE_FLAGS[@]}" menuconfig
+  mkdir -p "${OUT_DIR}"
+  make "${MAKE_FLAGS[@]}" "${BASE_DEFCONFIG}"
+  make "${MAKE_FLAGS[@]}" menuconfig
 }
 
 ###############################################################################
-# BUILD KERNEL
+# BUILD
 ###############################################################################
 build_kernel() {
-    log_step "Configuring FogOS Extreme Gaming Kernel"
-    mkdir -p "${OUT_DIR}" "${ZIP_DIR}"
+  log_info "Starting FogOS Extreme Gaming Kernel build..."
+  log_info "  Defconfig : ${BASE_DEFCONFIG}"
+  log_info "  Fragment  : ${GAMING_FRAGMENT}"
+  log_info "  Extreme   : ${GAMING_EXTREME_FRAGMENT}"
+  log_info "  Jobs      : ${JOBS}"
+  log_info "  Output    : ${OUT_DIR}"
 
-    # Load base defconfig
-    log_info "Loading defconfig: ${DEFCONFIG}"
-    make "${MAKE_FLAGS[@]}" "${DEFCONFIG}"
+  mkdir -p "${OUT_DIR}"
 
-    # Merge gaming fragment
-    if [ -f "${GAMING_FRAGMENT}" ]; then
-        log_info "Merging gaming fragment: fogos_gaming.config"
-        ./scripts/kconfig/merge_config.sh -m -O "${OUT_DIR}" \
-            "${OUT_DIR}/.config" "${GAMING_FRAGMENT}"
-        make "${MAKE_FLAGS[@]}" olddefconfig
+  # Step 1: Apply base defconfig
+  log_info "Applying base defconfig: ${BASE_DEFCONFIG}"
+  make "${MAKE_FLAGS[@]}" "${BASE_DEFCONFIG}"
+
+  # Step 2: Merge gaming fragment if it exists
+  if [ -f "${GAMING_FRAGMENT}" ]; then
+    log_info "Merging gaming fragment: fogos_gaming.config"
+    # Use kernel's merge_config.sh
+    MERGE_SCRIPT="${KERNEL_DIR}/scripts/kconfig/merge_config.sh"
+    if [ -f "$MERGE_SCRIPT" ]; then
+      # -O "${OUT_DIR}" keeps the merged .config inside out/ so the source
+      # root stays clean (required for O=out builds; see outputmakefile check).
+      ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" \
+        bash "$MERGE_SCRIPT" -m -O "${OUT_DIR}" "${OUT_DIR}/.config" "${GAMING_FRAGMENT}"
+      # Regenerate from merged .config
+      make "${MAKE_FLAGS[@]}" olddefconfig
+    else
+      # Fallback: append fragment lines and run olddefconfig
+      grep -v "^#" "${GAMING_FRAGMENT}" >> "${OUT_DIR}/.config"
+      make "${MAKE_FLAGS[@]}" olddefconfig
     fi
+    log_success "Gaming config merged."
+  else
+    log_warn "Gaming fragment not found at ${GAMING_FRAGMENT} — using base config only."
+    make "${MAKE_FLAGS[@]}" olddefconfig
+  fi
 
-    # Merge extreme gaming fragment (Replit/NixOS toolchain compat + ultra tuning)
-    if [ -f "${GAMING_EXTREME_FRAGMENT}" ]; then
-        log_info "Merging extreme gaming fragment: fogos_gaming_extreme.config"
-        ./scripts/kconfig/merge_config.sh -m -O "${OUT_DIR}" \
-            "${OUT_DIR}/.config" "${GAMING_EXTREME_FRAGMENT}"
-        make "${MAKE_FLAGS[@]}" olddefconfig
+  # Step 2b: Merge extreme gaming fragment (disables COMPAT_VDSO for clang19 NixOS compat)
+  if [ -f "${GAMING_EXTREME_FRAGMENT}" ]; then
+    log_info "Merging extreme gaming fragment: fogos_gaming_extreme.config"
+    MERGE_SCRIPT="${KERNEL_DIR}/scripts/kconfig/merge_config.sh"
+    if [ -f "$MERGE_SCRIPT" ]; then
+      ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" \
+        bash "$MERGE_SCRIPT" -m -O "${OUT_DIR}" "${OUT_DIR}/.config" "${GAMING_EXTREME_FRAGMENT}"
+      make "${MAKE_FLAGS[@]}" olddefconfig
+    else
+      grep -v "^#" "${GAMING_EXTREME_FRAGMENT}" >> "${OUT_DIR}/.config"
+      make "${MAKE_FLAGS[@]}" olddefconfig
     fi
+    log_success "Extreme gaming config merged."
+  fi
 
-    log_success "Config ready — $(grep -c '=y' "${OUT_DIR}/.config") options enabled"
+  # Step 3: Compile
+  log_info "Compiling kernel (${JOBS} jobs)..."
+  make "${MAKE_FLAGS[@]}" Image Image.gz Image.lz4 2>&1 || \
+    make "${MAKE_FLAGS[@]}" Image 2>&1
 
-    log_step "Compiling Linux 5.4.302 — FogOS Extreme Gaming"
-    log_info "Jobs: ${JOBS} | Target: ${ARCH} | Compiler: clang+LLVM"
-    echo ""
+  # Step 4: Build DTBs (non-fatal — Moto overlay check may fail in CI)
+  log_info "Building device tree blobs..."
+  make "${MAKE_FLAGS[@]}" dtbs 2>&1 || true
 
-    START_TIME=$(date +%s)
+  # Step 5: Verify output
+  KERNEL_OUT="$(find_kernel_image)"
+  [ -z "$KERNEL_OUT" ] && log_error "Kernel image not found after build!"
 
-    make "${MAKE_FLAGS[@]}" Image.gz-dtb 2>&1 | tee "${OUT_DIR}/build.log" || {
-        log_warn "Image.gz-dtb failed, trying Image..."
-        make "${MAKE_FLAGS[@]}" Image 2>&1 | tee -a "${OUT_DIR}/build.log" || {
-            log_error "Kernel build failed! Check ${OUT_DIR}/build.log"
-        }
-    }
-
-    END_TIME=$(date +%s)
-    BUILD_TIME=$((END_TIME - START_TIME))
-    log_success "Kernel compiled in ${BUILD_TIME}s"
+  KERNEL_SIZE=$(du -sh "$KERNEL_OUT" | cut -f1)
+  log_success "Kernel built: ${KERNEL_OUT} (${KERNEL_SIZE})"
 }
 
 ###############################################################################
-# PACKAGE ANYKERNEL3 ZIP
+# PACKAGE AnyKernel3 ZIP
 ###############################################################################
 package_zip() {
-    log_step "Packaging AnyKernel3 Flashable ZIP"
+  log_info "Packaging AnyKernel3 ZIP..."
+  mkdir -p "${ZIP_DIR}"
 
-    KERNEL_IMG=""
-    for img in "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb" \
-               "${OUT_DIR}/arch/arm64/boot/Image.gz" \
-               "${OUT_DIR}/arch/arm64/boot/Image"; do
-        if [ -f "$img" ]; then
-            KERNEL_IMG="$img"
-            break
-        fi
-    done
+  # Copy kernel image into anykernel dir
+  KERNEL_IMG="$(find_kernel_image)"
+  [ -n "$KERNEL_IMG" ] && cp "$KERNEL_IMG" "${ANYKERNEL_DIR}/"
 
-    if [ -z "$KERNEL_IMG" ]; then
-        log_error "No kernel image found in ${OUT_DIR}/arch/arm64/boot/"
-    fi
+  # Copy DTBs
+  mkdir -p "${ANYKERNEL_DIR}/dtbs"
+  find "${OUT_DIR}/arch/arm64/boot/dtbs" \
+       \( -name "*holi*" -o -name "*sm6375*" -o -name "*moto*" \) \
+       -exec cp {} "${ANYKERNEL_DIR}/dtbs/" \; 2>/dev/null || true
 
-    log_info "Kernel image: $KERNEL_IMG"
+  # Build ZIP
+  cd "${ANYKERNEL_DIR}"
+  zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
+    anykernel.sh fogos_lib.sh fogos_gaming_init.sh fogos_game_detector.sh META-INF \
+    dtbs Image* tools 2>/dev/null || \
+  zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . --exclude="*.log" 2>/dev/null
 
-    # Copy into AnyKernel dir
-    cp "${KERNEL_IMG}" "${ANYKERNEL_DIR}/Image.gz-dtb" 2>/dev/null || \
-    cp "${KERNEL_IMG}" "${ANYKERNEL_DIR}/Image"
-
-    # Copy DTBs if present
-    if [ -d "${OUT_DIR}/arch/arm64/boot/dts/qcom" ]; then
-        mkdir -p "${ANYKERNEL_DIR}/dtbs"
-        cp "${OUT_DIR}/arch/arm64/boot/dts/qcom/"*.dtb "${ANYKERNEL_DIR}/dtbs/" 2>/dev/null || true
-        log_info "DTBs copied"
-    fi
-
-    # Build the zip
-    cd "${ANYKERNEL_DIR}"
-    zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . \
-        --exclude='.git/*' --exclude='*.placeholder'
-    cd "${KERNEL_DIR}"
-
-    log_success "AnyKernel3 ZIP: ${ZIP_DIR}/${ZIP_NAME}"
-    log_success "Size: $(du -sh "${ZIP_DIR}/${ZIP_NAME}" | cut -f1)"
-}
-
-###############################################################################
-# BUILD BOOT.IMG (requires stock_boot.img)
-###############################################################################
-build_bootimg() {
-    log_step "Building boot.img"
-
-    if [ ! -f "${STOCK_BOOT_IMG}" ]; then
-        # look for it in common locations
-        for candidate in "${KERNEL_DIR}/stock_boot.img" "${KERNEL_DIR}/boot.img"; do
-            [ -f "$candidate" ] && STOCK_BOOT_IMG="$candidate" && break
-        done
-    fi
-
-    if [ ! -f "${STOCK_BOOT_IMG}" ]; then
-        log_warn "No stock_boot.img found — skipping boot.img creation"
-        log_warn "To build boot.img:"
-        log_warn "  1. Place your device's stock_boot.img in the kernel directory"
-        log_warn "  2. Run: ./build_fogos.sh --bootimg stock_boot.img"
-        return 0
-    fi
-
-    MKBOOTIMG=$(which mkbootimg 2>/dev/null || echo "")
-    if [ -z "$MKBOOTIMG" ]; then
-        log_warn "mkbootimg not found — installing..."
-        pip3 install --quiet mkbootimg 2>/dev/null || true
-        MKBOOTIMG=$(which mkbootimg 2>/dev/null || echo "")
-    fi
-
-    if [ -z "$MKBOOTIMG" ]; then
-        log_warn "Could not install mkbootimg. Downloading Android tools..."
-        local TOOLS_DIR="${OUT_DIR}/android_tools"
-        mkdir -p "$TOOLS_DIR"
-        if command -v python3 &>/dev/null; then
-            python3 - << 'PYEOF'
-import urllib.request, os, stat, sys
-url = "https://android.googlesource.com/platform/system/tools/mkbootimg/+archive/refs/heads/main.tar.gz"
-print(f"Cannot auto-download mkbootimg in this environment.")
-print(f"Please provide stock_boot.img and mkbootimg manually.")
-PYEOF
-        fi
-        log_warn "Skipping boot.img — see instructions above"
-        return 0
-    fi
-
-    log_info "Extracting ramdisk from: ${STOCK_BOOT_IMG}"
-    UNPACK_DIR="${OUT_DIR}/boot_unpack"
-    mkdir -p "${UNPACK_DIR}"
-
-    # Unpack stock boot image using python3
-    python3 - <<PYEOF
-import subprocess, sys
-r = subprocess.run(
-    ["python3", "-m", "mkbootimg", "--unpack", "${STOCK_BOOT_IMG}", "--out", "${UNPACK_DIR}"],
-    capture_output=True, text=True
-)
-if r.returncode != 0:
-    print("unpack failed:", r.stderr)
-    sys.exit(1)
-print("Stock boot.img unpacked")
-PYEOF
-
-    # Find our kernel image
-    KERNEL_IMG=""
-    for img in "${OUT_DIR}/arch/arm64/boot/Image.gz-dtb" \
-               "${OUT_DIR}/arch/arm64/boot/Image.gz" \
-               "${OUT_DIR}/arch/arm64/boot/Image"; do
-        [ -f "$img" ] && KERNEL_IMG="$img" && break
-    done
-
-    BOOTIMG_OUT="${ZIP_DIR}/${KERNEL_VERSION}-Holi-${DATE}-boot.img"
-
-    log_info "Building boot.img with new kernel..."
-    python3 -m mkbootimg \
-        --kernel "${KERNEL_IMG}" \
-        --ramdisk "${UNPACK_DIR}/ramdisk" \
-        --pagesize 4096 \
-        --base 0x00000000 \
-        --kernel_offset 0x00008000 \
-        --ramdisk_offset 0x01000000 \
-        --tags_offset 0x00000100 \
-        --cmdline "console=ttyMSM0,115200n8 androidboot.hardware=qcom androidboot.console=ttyMSM0 androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 androidboot.usbcontroller=4e00000.dwc3 swiotlb=2048 loop.max_part=7 cgroup.memory=nokmem,nosocket reboot=panic_warm buildvariant=user" \
-        -o "${BOOTIMG_OUT}"
-
-    log_success "boot.img: ${BOOTIMG_OUT}"
-    log_success "Size: $(du -sh "${BOOTIMG_OUT}" | cut -f1)"
+  cd "${KERNEL_DIR}"
+  log_success "ZIP: ${ZIP_DIR}/${ZIP_NAME}"
 }
 
 ###############################################################################
 # SUMMARY
 ###############################################################################
 print_summary() {
-    echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║  👑  FogOS Extreme Gaming Kernel v2.0 Ultra — DONE  ║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║  Device : Motorola G45 / G34 (SM6375 / Holi)        ║${NC}"
-    echo -e "${CYAN}║  Dev    : Prince (VirgoYT707)                        ║${NC}"
-    echo -e "${CYAN}║  Base   : Linux 5.4.302 · Android 16                ║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║  Output:                                             ║${NC}"
-    echo -e "${CYAN}║  AnyKernel3 ZIP → release/ folder                   ║${NC}"
-    if $DO_BOOTIMG; then
-    echo -e "${CYAN}║  boot.img       → release/ folder                   ║${NC}"
-    fi
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║  Flash: TWRP → Install → Select ZIP                 ║${NC}"
-    if $DO_BOOTIMG; then
-    echo -e "${CYAN}║     or: fastboot flash boot boot.img                 ║${NC}"
-    fi
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${GREEN}  👑 Built Different · VirgoYT707 · Prince 👑${NC}"
-    echo ""
+  echo ""
+  echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+  echo -e "${GREEN}║   FogOS Extreme Gaming Kernel v3 — BUILD DONE!    ║${NC}"
+  echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+  echo -e "${GREEN}║  Device  : Motorola G45 (SM6375 / Holi)             ║${NC}"
+  echo -e "${GREEN}║  Dev     : Prince (VirgoYT707)                      ║${NC}"
+  echo -e "${GREEN}║  Base    : Linux 5.4.302 · Android 16               ║${NC}"
+  echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
+  echo -e "${GREEN}║  Output:                                             ║${NC}"
+  echo -e "${GREEN}║  • ${ZIP_DIR}/${ZIP_NAME}  ${NC}"
+  echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
+  echo ""
+  echo -e "${CYAN}Flash with TWRP: Install → ${ZIP_NAME}${NC}"
+  echo -e "${CYAN}Or use: bash scripts/create_bootimg.sh stock_boot.img ${NC}"
+  echo ""
 }
 
 ###############################################################################
 # ENTRY POINT
 ###############################################################################
-echo ""
-echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║    VirgoYT Gaming Kernel — FogOS Extreme v2.0 Ultra  ║${NC}"
-echo -e "${CYAN}║   Device: Motorola G45/G34 (SM6375/Holi)            ║${NC}"
-echo -e "${CYAN}║   Developer: Prince (VirgoYT707)                    ║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
-echo ""
+main() {
+  # parse_args returns non-zero only for --help/-h, which should exit cleanly.
+  parse_args "$@" || exit 0
 
-setup_toolchain
+  echo ""
+  echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
+  echo -e "${CYAN}║       FogOS Extreme Gaming Kernel Builder v3       ║${NC}"
+  echo -e "${CYAN}║   Motorola G45 (SM6375/Holi) · Developer: VirgoYT   ║${NC}"
+  echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+  echo ""
 
-if $DO_CLEAN; then
-    do_clean
-fi
+  setup_toolchain
+  apply_vdso32_fix
 
-if $DO_MENUCONFIG; then
+  $DO_CLEAN && do_clean
+
+  if $DO_MENUCONFIG; then
     do_menuconfig
     exit 0
-fi
+  fi
 
-build_kernel
-package_zip
+  build_kernel
+  package_zip
+  print_summary
+}
 
-if $DO_BOOTIMG; then
-    build_bootimg
-fi
-
-print_summary
+# Skip execution when sourced for unit testing (see FOGOS_LIB_ONLY guard above).
+[ "${FOGOS_LIB_ONLY:-0}" = "1" ] || main "$@"

@@ -1,0 +1,210 @@
+Yesterday 02:57:30
+Its Dazzy Prince
+Bro this is kernel or yes then I wanted to make it gaming kernel fir my device Motorola G45/34 Fogos I'm using evolution x rom and I will use smart kernel manger to flash and also ask me what values i should put and also recommend for hint
+
+
+Accio Assistant
+Yesterday 02:58:23
+Worked for 1m 43s
+
+Got your answers locked in, bro — but heads up: your credits just ran out, so I can't run the full research/build-guide workflow this turn. Here's where we stand:
+
+✅ What's confirmed so far
+Device: Moto G45 (fogo) — Snapdragon 6s Gen 3, Adreno 619
+Goal: Build your own gaming kernel from source
+Profile: Max FPS, battery doesn't matter
+App: SmartPack-Kernel Manager for flashing/tuning
+⚡ Partial pointers (from what we have so far)
+Building for fogo means you'll need the Moto SM6375-family kernel source, a toolchain (Clang), and an AnyKernel3 template to package it — SmartPack can flash the resulting zip.
+For a "Max FPS" profile the general direction is: performance/schedutil-with-boost CPU governor, GPU governor set aggressive (msm-adreno-tz tweaked or performance), higher GPU min freq, relaxed thermal throttle points, and noop/none I/O scheduler for gaming sessions.
+Exact safe values (freq tables, thermal limits, source repo links) need verification against real fogo sources — I don't want to hand you unverified numbers for something you'll flash to your boot partition.
+🔋 What you need to do
+Top up / recharge your credits, then just send any message (even "continue") and I'll pick up right here — I'll find the actual kernel source for fogo, walk you through the build setup step by step, and give you the exact SmartPack values for your max-FPS profile.
+
+
+
+
+
+Yesterday 03:03:03
+Its Dazzy Prince
+FOGOS EXTREME GAMING KERNEL
+Developer: Prince (VirgoYT707)
+Device: Motorola G45 (SM6375 / Holi)
+Android: 16
+Kernel Base: 5.4.302
+Purpose:
+Maximum BGMI performance with the lowest possible latency while keeping the kernel bootable.
+
+====================================
+BRANDING
+====================================
+
+Kernel Name:
+FogOS
+
+Developer:
+Prince (VirgoYT707)
+
+Version:
+FogOS Gaming Kernel v1.0
+
+====================================
+CPU
+====================================
+
+• Maximum CPU Performance
+• Performance-oriented scheduler
+• Faster ramp-up
+• Slower ramp-down
+• Touch Boost Enabled
+• Input Boost Enabled
+• CPU Idle optimized
+• Reduce latency
+• Disable unnecessary power saving during gaming
+• Prefer Big Cores while gaming
+• Allow sustained max frequencies
+
+====================================
+GPU
+====================================
+
+• GPU Performance Mode
+• Max GPU clocks during gaming
+• Reduce GPU idle latency
+• Faster GPU ramp
+• Disable GPU throttling as much as safely possible
+• Optimize Adreno governor
+
+====================================
+THERMAL
+====================================
+
+• Gaming thermal profile
+• Delay throttling
+• Raise thermal limits
+• Throttle only when absolutely necessary
+• Maximum safe thermal tuning
+
+====================================
+MEMORY
+====================================
+
+• Optimized LMK
+• Optimized vm settings
+• Reduced swapping
+• Better RAM reclaim
+• Better cache management
+• ZRAM optimized
+• Faster memory allocation
+• Less memory fragmentation
+
+====================================
+SCHEDULER
+====================================
+
+• Gaming scheduler tuning
+• Low wake-up latency
+• Better task migration
+• Better foreground priority
+• Reduced scheduling delay
+
+====================================
+I/O
+====================================
+
+• Fast I/O scheduler
+• Lower read latency
+• Lower write latency
+• Better sequential performance
+• Better random performance
+
+====================================
+NETWORK
+====================================
+
+• Lower ping optimization
+• TCP optimization
+• Faster DNS response
+• Lower packet delay
+• Better buffer tuning
+• Better WiFi latency
+• Better mobile data latency
+
+====================================
+TOUCH
+====================================
+
+• Maximum touch sampling rate
+• Touch boost
+• Lowest input latency
+• Faster gesture response
+
+====================================
+DISPLAY
+====================================
+
+• Faster frame scheduling
+• Lower rendering latency
+• Better SurfaceFlinger interaction
+• Better scrolling smoothness
+
+====================================
+POWER
+====================================
+
+• Maximum gaming performance
+• Ignore battery saving during games
+• Better charging stability
+• Better sustained performance
+
+====================================
+FILESYSTEM
+====================================
+
+• Automatic fstrim
+• Better filesystem cache
+• Faster storage response
+
+====================================
+LOGGING
+====================================
+
+• Reduce kernel logging
+• Disable unnecessary debug messages
+• Reduce overhead
+
+====================================
+SECURITY
+====================================
+
+• Keep SELinux Enforcing
+• Keep AVB compatibility
+• Bootloader compatibility
+• Banking app compatibility where possible
+
+====================================
+EXPECTED RESULT
+====================================
+
+• Maximum BGMI FPS
+• Lowest touch latency
+• Better frame stability
+• Lower ping
+• Faster app launch
+• Better multitasking
+• Reduced micro stutters
+• Stable gaming
+• Better battery under gaming
+• Daily-driver stable
+• Bootable without bootloop
+
+====================================
+DELIVERABLES
+====================================
+
+• Image.gz
+• dtbo.img
+• boot.img
+• AnyKernel3 flashable ZIP
+• Flashing instructions
+• Source code changes documented

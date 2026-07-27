@@ -91,6 +91,7 @@ modules.order
 !.gitattributes
 !.gitignore
 !.mailmap
+!.github
 
 #
 # Generated include files
@@ -153,3 +154,10 @@ arch/arm/boot/dts/vendor
 #Ignoring Android.bp link file
 #
 Android.bp
+
+# FogOS Dashboard
+.venv/
+.fogos_token
+*.pyc
+__pycache__/
+/tmp/fogos-*

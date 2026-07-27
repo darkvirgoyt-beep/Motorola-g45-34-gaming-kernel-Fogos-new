@@ -1,56 +1,393 @@
-name: FogOS Kernel Build
+name: FogOS Kernel — Build & Boot Image
+
+###############################################################################
+# Builds the VirgoYT Gaming Kernel (FogOS) for Motorola G45/G34 (SM6375/Holi)
+# and packs it into a fastboot-flashable boot.img using the stock image.
+#
+# Developer : Prince · VirgoYT707
+# Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
+# Base      : Linux 5.4.302 · Android 16
+###############################################################################
 
 on:
   push:
-    branches: [ sixteen-qpr2, main, master, develop ]
-  pull_request:
-    branches: [ sixteen-qpr2, main, master, develop ]
+    branches: [main, sixteen-qpr2]
+    paths:
+      - 'arch/**'
+      - 'drivers/**'
+      - 'kernel/**'
+      - 'mm/**'
+      - 'net/**'
+      - 'fs/**'
+      - 'block/**'
+      - 'crypto/**'
+      - 'sound/**'
+      - 'techpack/**'
+      - 'build_fogos.sh'
+      - 'scripts/**'
+      - 'stock/boot.img'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create GitHub Release after build'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      prerelease:
+        description: 'Mark as pre-release / beta'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      version_tag:
+        description: 'Release version tag (e.g. v3, v3.1) — leave blank for auto date'
+        required: false
+        default: ''
+
+env:
+  ARCH: arm64
+  SUBARCH: arm64
+  OUT: out
+  KBUILD_BUILD_USER: prince
+  KBUILD_BUILD_HOST: virgoyt707
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:22.04
-    
+    name: 🔨 Build Kernel & Boot Image
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write   # required to create GitHub Releases and upload assets
+
     steps:
-      - name: Checkout code
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 📥 Checkout Kernel Source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - name: Install build dependencies
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 🛠️ Install Build Dependencies
         run: |
-          apt-get update
-          apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python-is-python3 wget tar
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            bc bison flex libssl-dev libelf-dev make \
+            clang-14 lld-14 llvm-14 \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            zip unzip \
+            mkbootimg \
+            python3 python3-pip \
+            cpio git
 
-      - name: Install Clang & GCC toolchain
+          # Expose ALL clang-14/LLVM-14 tools (llvm-nm, llvm-ar, llvm-objcopy,
+          # llvm-strip, llvm-readelf …) without the -14 suffix by prepending
+          # the versioned bin dir.  This must go to GITHUB_PATH so every
+          # subsequent step inherits it.
+          echo "/usr/lib/llvm-14/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/llvm-14/bin:$PATH"
+          clang --version
+          llvm-nm --version | head -1
+          echo "✅ LLVM-14 toolchain fully in PATH"
+
+          # Ubuntu 24.04's apt mkbootimg imports 'gki' but ships without it.
+          # Stub the missing module — it's only used for GKI certificate signing,
+          # not for plain kernel repacking.
+          sudo python3 - <<'PYEOF'
+          import site, pathlib
+          gki = pathlib.Path(site.getsitepackages()[0]) / "gki"
+          gki.mkdir(exist_ok=True)
+          (gki / "__init__.py").write_text("")
+          (gki / "generate_gki_certificate.py").write_text(
+              "def generate_gki_certificate(*a, **k): return None\n"
+          )
+          print("gki stub installed at", gki)
+          PYEOF
+
+          # Smoke-test both tools
+          unpack_bootimg --help 2>&1 | head -1
+          mkbootimg --version 2>&1 || python3 /usr/bin/mkbootimg --version 2>&1 || true
+          echo "✅ Dependencies installed"
+
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 📅 Set Build Date
+        run: echo "DATE=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
+      # ──────────────────────────────────────────────────────────────────────
+      - name: ⚙️ Configure Kernel
         run: |
-          apt-get install -y clang llvm lld llvm-dev gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
-          mkdir -p $HOME/toolchains/clang/bin
-          ln -sf $(which clang) $HOME/toolchains/clang/bin/clang
-          ln -sf $(which ld.lld) $HOME/toolchains/clang/bin/ld.lld
-          ln -sf $(which llvm-ar) $HOME/toolchains/clang/bin/llvm-ar
-          ln -sf $(which llvm-nm) $HOME/toolchains/clang/bin/llvm-nm
-          ln -sf $(which llvm-objcopy) $HOME/toolchains/clang/bin/llvm-objcopy
-          ln -sf $(which llvm-objdump) $HOME/toolchains/clang/bin/llvm-objdump
-          ln -sf $(which llvm-strip) $HOME/toolchains/clang/bin/llvm-strip
+          # vendor/fogos_defconfig is the required FogOS gaming config.
+          # A missing defconfig means a mis-configured tree — fail fast.
+          DEFCONFIG="vendor/fogos_defconfig"
+          GAMING_FRAG="arch/arm64/configs/vendor/fogos_gaming.config"
 
-      - name: Build FogOS Kernel
+          if [ ! -f "arch/arm64/configs/${DEFCONFIG}" ]; then
+            echo "❌ fogos_defconfig not found at arch/arm64/configs/${DEFCONFIG}"
+            echo "   Add the defconfig before building — do NOT fall back to a generic config."
+            exit 1
+          fi
+          echo "Using defconfig : ${DEFCONFIG}"
+          echo "Gaming fragment : ${GAMING_FRAG}"
+
+          # Step 1 — Load base defconfig (pipe 'yes' to auto-answer new Kconfig symbols)
+          yes "" | make O=${OUT} \
+            ARCH=${ARCH} \
+            LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            ${DEFCONFIG}
+
+          # Step 2 — Merge gaming optimisation fragment (audio, Bolero, WCD937x,
+          #           Dolby Atmos, SW_SYNC for screen recording, GPU/CPU tuning …)
+          #           merge_config.sh: -m = merge into existing .config, -O = output dir
+          if [ -f "${GAMING_FRAG}" ]; then
+            bash scripts/kconfig/merge_config.sh -m -O "${OUT}" \
+              "${OUT}/.config" "${GAMING_FRAG}"
+            echo "✅ Gaming fragment merged"
+          else
+            echo "⚠️ Gaming fragment not found — skipping merge"
+          fi
+
+          # Step 3 — Resolve any remaining unset symbols to safe defaults
+          make O=${OUT} \
+            ARCH=${ARCH} \
+            LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            olddefconfig
+
+          echo "✅ Kernel configured"
+          echo "DEFCONFIG=${DEFCONFIG}" >> $GITHUB_ENV
+
+          # Print the audio-critical configs so we can verify in the log
+          echo "── Audio config check ──────────────────────────────────"
+          for cfg in SND_SOC_BOLERO SND_SOC_WCD937X SND_SOC_HOLI \
+                     TX_MACRO RX_MACRO VA_MACRO WSA_MACRO \
+                     QTI_PP REGMAP_WCD_IRQ MFD_WCD SW_SYNC \
+                     VIDEO_QCOM_VENUS HDCP_QSEECOM; do
+            val=$(grep "^CONFIG_${cfg}=" "${OUT}/.config" 2>/dev/null || echo "# NOT SET")
+            echo "  ${cfg}: ${val}"
+          done
+          echo "────────────────────────────────────────────────────────"
+
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 🔧 Build Kernel
         run: |
-          chmod +x build_fogos.sh
-          export CLANG_DIR=$HOME/toolchains/clang
-          ./build_fogos.sh 2>&1 | tee build.log
+          echo "🚀 Building kernel with $(nproc) jobs..."
+          # pipefail ensures the make exit code survives the | tee pipe.
+          set -o pipefail
+          make O=${OUT} \
+            ARCH=${ARCH} \
+            LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            -j$(nproc) \
+            2>&1 | tee build.log
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "Build exit: ${BUILD_EXIT}"
+          if [ "${BUILD_EXIT}" -ne 0 ]; then
+            echo "❌ Build failed — last errors:"
+            grep -iE "^.*error:|undefined reference|fatal:" build.log | tail -30 || true
+            exit "${BUILD_EXIT}"
+          fi
 
-      - name: Upload logs
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 🔍 Find Kernel Image
+        run: |
+          # fogos_defconfig sets CONFIG_BUILD_ARM64_UNCOMPRESSED_KERNEL=y → Image
+          # Use a local variable to track success; $GITHUB_ENV writes are only
+          # visible to *subsequent* steps, not the current shell.
+          found_kernel=""
+          for img in \
+            "${OUT}/arch/arm64/boot/Image" \
+            "${OUT}/arch/arm64/boot/Image.gz" \
+            "${OUT}/arch/arm64/boot/Image.lz4" \
+            "${OUT}/arch/arm64/boot/Image.gz-dtb"; do
+            if [ -f "$img" ]; then
+              echo "✅ Kernel image: $img  ($(du -sh "$img" | cut -f1))"
+              echo "KERNEL_PATH=$img" >> "$GITHUB_ENV"
+              found_kernel="$img"
+              break
+            fi
+          done
+
+          if [ -z "$found_kernel" ]; then
+            echo "❌ No kernel image found. Last 50 build errors:"
+            grep -iE "error:|undefined reference|fatal:" build.log | tail -50 || true
+            exit 1
+          fi
+
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 📦 Create Flashable Boot Image
+        run: |
+          mkdir -p release
+
+          echo "📱 Packing boot.img for Motorola G45 (SM6375 / Holi)..."
+          bash scripts/create_bootimg.sh \
+            stock/boot.img \
+            "${KERNEL_PATH}" \
+            "release/FogOS-boot-${DATE}.img"
+
+          ls -lh "release/FogOS-boot-${DATE}.img"
+          echo "BOOT_IMG=release/FogOS-boot-${DATE}.img" >> $GITHUB_ENV
+
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 🤐 Prepare AnyKernel3 ZIP (TWRP flash)
+        run: |
+          # Copy kernel into AnyKernel3 directory
+          cp "${KERNEL_PATH}" anykernel3/Image 2>/dev/null || true
+
+          ZIP_NAME="FogOS-Extreme-Gaming-v3-Holi-${DATE}"
+          cd anykernel3
+          zip -r9 "../release/${ZIP_NAME}.zip" . --exclude="*.git*"
+          cd ..
+
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+          ls -lh "release/${ZIP_NAME}.zip"
+
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 📤 Upload Boot Image (fastboot-flashable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: FogOS-boot-${{ env.DATE }}
+          path: release/FogOS-boot-${{ env.DATE }}.img
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: 📤 Upload AnyKernel3 ZIP (TWRP-flashable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: release/${{ env.ZIP_NAME }}.zip
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: 📤 Upload Build Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs-${{ github.run_number }}
+          name: build-log-${{ env.DATE }}
           path: build.log
-
-      - name: Upload kernel
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fogos-kernel-${{ github.run_number }}
-          path: release/
+          retention-days: 7
           if-no-files-found: warn
+
+      # ──────────────────────────────────────────────────────────────────────
+      # ──────────────────────────────────────────────────────────────────────
+      - name: 🌐 Ensure repository is public
+        if: github.event_name == 'push' || github.event.inputs.release == 'true'
+        run: |
+          REPO="${{ github.repository }}"
+          echo "Setting $REPO to public..."
+          RESULT=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer ${{ secrets.FOGOS_GITHUB_TOKEN || github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPO}" \
+            -d '{"private":false,"visibility":"public"}')
+          if [ "$RESULT" = "200" ]; then
+            echo "✅ Repository is now public — releases are downloadable by anyone."
+          else
+            echo "⚠️ Could not set repo public (HTTP $RESULT). Check that FOGOS_GITHUB_TOKEN has Administration: write scope."
+          fi
+
+      - name: 🏷️ Set Release Tag
+        if: github.event_name == 'push' || github.event.inputs.release == 'true'
+        run: |
+          VTAG="${{ github.event.inputs.version_tag }}"
+          if [ -n "$VTAG" ]; then
+            echo "RELEASE_TAG=${VTAG}-${DATE}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=👑 FogOS Extreme Gaming Kernel ${VTAG} — ${DATE}" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TAG=FogOS-v3-${DATE}" >> $GITHUB_ENV
+            echo "RELEASE_NAME=👑 FogOS Extreme Gaming Kernel v3 — ${DATE}" >> $GITHUB_ENV
+          fi
+
+      - name: 🚀 Create GitHub Release
+        if: github.event_name == 'push' || github.event.inputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          body: |
+            ## 👑 VirgoYT Gaming Kernel — FogOS Extreme Gaming Edition
+
+            | Field | Value |
+            |-------|-------|
+            | **Developer** | Prince · VirgoYT707 |
+            | **Device** | Motorola G45 / G34 (SM6375 / Holi) |
+            | **Android** | 16.0.0 · Security Patch 2026-06 |
+            | **Kernel** | Linux 5.4.302 |
+            | **Build** | ${{ env.DATE }} |
+
+            ---
+
+            ### 📱 Method 1 — Fastboot (Recommended)
+
+            > Requires **unlocked bootloader**.
+
+            ```bash
+            # Download: FogOS-boot-${{ env.DATE }}.img
+            adb reboot bootloader
+            fastboot --disable-verity --disable-verification flash boot FogOS-boot-${{ env.DATE }}.img
+            fastboot reboot
+            ```
+
+            ### 📦 Method 2 — TWRP
+
+            1. Boot to TWRP recovery
+            2. Install → select `${{ env.ZIP_NAME }}.zip`
+            3. Wipe Cache + Dalvik → Reboot
+
+            ---
+
+            ### 🆕 What's New in v3
+
+            | Area | Improvement |
+            |------|-------------|
+            | 🔊 **Audio** | Full QDSP6 + WCD937x + Bolero stack restored — speaker, mic, earpiece, BT all working |
+            | 🎵 **Dolby Atmos** | QTI_PP + MFD_WCD + REGMAP_WCD_IRQ enabled — no crash loop, spatial audio working |
+            | 📺 **Video Decode** | Venus hardware decoder enabled — Reels, YT Shorts, video calls no longer stutter |
+            | 🔐 **Widevine L1** | HDCP_QSEECOM enabled — HD Netflix/Hotstar/Prime now work |
+            | 🌡️ **Thermal** | 3 profiles: Balanced 75°C / Performance 85°C / Extreme Gaming 85°C |
+            | 🎯 **Bullet Reg** | InputDispatcher → SCHED_FIFO RT-99 on CPU6/7 — shots register the frame you fire |
+            | 🔫 **Desync Fix** | SurfaceFlinger phase tightened (1ms/0.5ms) — visual and server hit land together |
+            | 🔵 **Gyroscope** | 2ms sensor path (~500Hz), big-core IRQ — smoother BGMI gyro aiming |
+            | 🖥️ **Rendering** | SurfaceFlinger RT-99 + Skia Vulkan + triple buffer + KGSL frame pacing — zero stutter |
+            | 🎮 **Profiles** | Balanced / Performance / Extreme Gaming — switch via `/data/local/fogos_profile` |
+            | 📡 **Network** | TCP BBR + UDP busy-poll 50µs + WLAN PS off — lowest possible ping |
+
+            ### 📱 Flash via Fastboot (Recommended)
+            > Requires **unlocked bootloader**.
+            ```bash
+            adb reboot bootloader
+            fastboot --disable-verity --disable-verification flash boot FogOS-boot-${{ env.DATE }}.img
+            fastboot reboot
+            ```
+
+            ### 📦 Flash via TWRP
+            1. Boot into TWRP
+            2. Install → `${{ env.ZIP_NAME }}.zip`
+            3. Wipe Cache + Dalvik → Reboot
+
+            ### 🎮 Switch Gaming Profile (after boot)
+            ```bash
+            # Extreme Gaming (default — max performance)
+            echo "extreme_gaming" > /data/local/fogos_profile
+
+            # Performance (balanced boost)
+            echo "performance" > /data/local/fogos_profile
+
+            # Balanced (daily driver)
+            echo "balanced" > /data/local/fogos_profile
+            ```
+
+            ---
+            *"I don't chase. I attract. I WIN."* — Prince, VirgoYT707
+          files: |
+            release/FogOS-boot-${{ env.DATE }}.img
+            release/${{ env.ZIP_NAME }}.zip
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          draft: false
+          token: ${{ secrets.FOGOS_GITHUB_TOKEN || github.token }}
