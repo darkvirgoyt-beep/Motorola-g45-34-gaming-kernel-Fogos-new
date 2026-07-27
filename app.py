@@ -220,7 +220,7 @@ def api_trigger():
         401: "Token is invalid or missing repository access.",
         403: (
             "GitHub accepted repository access but rejected Actions dispatch. "
-            "Check Actions: Read and write for this exact repository and the repository Actions policy."
+            "Add the 'workflow' scope to your PAT: github.com → Settings → Developer settings → Personal access tokens → edit your token → tick 'workflow'."
         ),
         404: "Workflow not found or repo is private and token lacks access.",
         422: f"Branch '{GITHUB_BRANCH}' not found or workflow_dispatch not enabled.",
