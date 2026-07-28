@@ -1,14 +1,34 @@
 #!/usr/bin/env bash
 ###############################################################################
 # FogOS Extreme Gaming Kernel — Boot Image Creator
+#
 # Developer : Prince · VirgoYT707
 # Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
 #
 # Usage:
 #   bash scripts/create_bootimg.sh <stock_boot.img> <kernel_image> <output.img>
+#
+# This script:
+#   1. Unpacks the stock boot.img (preserving header fields + ramdisk)
+#   2. Replaces ONLY the kernel with the freshly built FogOS kernel
+#   3. Repacks a new boot.img identical in structure to the stock image
+#
+# Supports boot header v0, v1, v2, v3 (GKI) — Moto G45 (Holi) uses v3.
+#
+# Unpacking/repacking uses the AOSP mkbootimg/unpack_bootimg tools vendored in
+# scripts/vendor/mkbootimg/ instead of the distro `mkbootimg` apt package.
+# The Ubuntu apt package's unpack_bootimg predates boot header v3 (GKI): it
+# reads a "page_size" field that v3 images don't have, gets 0, and crashes
+# with "ZeroDivisionError" in get_number_of_pages(). Vendoring the current
+# AOSP scripts (which hardcode the v3+ page size instead of trusting a
+# nonexistent field) fixes that without touching any kernel config.
 ###############################################################################
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UNPACK_PY="$SCRIPT_DIR/vendor/mkbootimg/unpack_bootimg.py"
+MKBOOT_PY="$SCRIPT_DIR/vendor/mkbootimg/mkbootimg.py"
 
 STOCK_IMG="${1:-stock/boot.img}"
 KERNEL_IMG="${2:-out/arch/arm64/boot/Image}"
@@ -21,139 +41,87 @@ fail() { echo -e "${RED}[bootimg] ✗ $*${NC}"; exit 1; }
 
 [ -f "$STOCK_IMG" ]  || fail "Stock boot.img not found: $STOCK_IMG"
 [ -f "$KERNEL_IMG" ] || fail "Kernel image not found: $KERNEL_IMG"
+[ -f "$UNPACK_PY" ]  || fail "Vendored unpack_bootimg.py missing: $UNPACK_PY"
+[ -f "$MKBOOT_PY" ]  || fail "Vendored mkbootimg.py missing: $MKBOOT_PY"
 
 log "Stock  : $STOCK_IMG  ($(du -sh "$STOCK_IMG"  | cut -f1))"
 log "Kernel : $KERNEL_IMG ($(du -sh "$KERNEL_IMG" | cut -f1))"
 log "Output : $OUTPUT_IMG"
 
-###############################################################################
-# Ensure tools are available
-###############################################################################
-if ! command -v unpack_bootimg &>/dev/null || ! command -v mkbootimg &>/dev/null; then
-  log "Installing mkbootimg tools..."
-  sudo apt-get install -y mkbootimg
-fi
-
-# Fix Ubuntu 24.04 broken 'gki' import in Python mkbootimg
-python3 - <<'PYFIX'
-import site, pathlib
-gki = pathlib.Path(site.getsitepackages()[0]) / "gki"
-gki.mkdir(exist_ok=True)
-init = gki / "__init__.py"
-cert = gki / "generate_gki_certificate.py"
-if not init.exists():   init.write_text("")
-if not cert.exists():   cert.write_text("def generate_gki_certificate(*a, **k): return None\n")
-PYFIX
-
-###############################################################################
-# Parse stock boot image header
-###############################################################################
-log "Parsing stock boot image header..."
-
-HEADER_VER=$(python3 - "$STOCK_IMG" <<'PYEOF'
-import struct, sys
-path = sys.argv[1]
-with open(path, 'rb') as f:
-    hdr = f.read(4096)
-if hdr[0:8] != b'ANDROID!':
-    print("0"); sys.exit(0)
-print(struct.unpack_from('<I', hdr, 40)[0])
-PYEOF
-)
-
-# Validate — treat anything non-numeric as 0
-if ! [[ "$HEADER_VER" =~ ^[0-9]+$ ]]; then
-  log "Warning: could not read header version, defaulting to 0"
-  HEADER_VER=0
-fi
-log "Header version : $HEADER_VER"
-
-# Parse OS version/patch only if header_ver >= 3 and fields are non-zero
-OS_VERSION=""
-OS_PATCH=""
-if [ "$HEADER_VER" -ge 3 ]; then
-  OS_RAW=$(python3 - "$STOCK_IMG" <<'PYEOF'
-import struct, sys
-path = sys.argv[1]
-with open(path, 'rb') as f:
-    hdr = f.read(4096)
-v = struct.unpack_from('<I', hdr, 16)[0]
-maj  = (v >> 25) & 0x7f
-minr = (v >> 18) & 0x7f
-pat  = (v >> 11) & 0x7f
-year = ((v >> 4) & 0x7f) + 2000
-mon  = v & 0xf
-# Only print if values are non-zero/valid
-ver  = f"{maj}.{minr}.{pat}" if (maj or minr or pat) else ""
-# month must be 1-12 and year must be >= 2018 to be valid
-patch = f"{year}-{mon:02d}" if (1 <= mon <= 12 and year >= 2018) else ""
-print(f"{ver}|{patch}")
-PYEOF
-  )
-  OS_VERSION=$(echo "$OS_RAW" | cut -d'|' -f1)
-  OS_PATCH=$(echo "$OS_RAW"   | cut -d'|' -f2)
-  [ -n "$OS_VERSION" ] && log "OS version     : $OS_VERSION" || log "OS version     : (not set — skipping)"
-  [ -n "$OS_PATCH"   ] && log "OS patch       : $OS_PATCH"   || log "OS patch       : (not set — skipping)"
-fi
-
-###############################################################################
-# Unpack stock boot image to extract ramdisk
-###############################################################################
-WORK_DIR=$(mktemp -d /tmp/fogos-boot.XXXXX)
+WORK_DIR="$(mktemp -d /tmp/fogos-boot.XXXXX)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
+###############################################################################
+# Unpack — vendored AOSP unpack_bootimg, GKI v3/v4-safe
+###############################################################################
 log "Unpacking stock boot.img..."
-unpack_bootimg --boot_img "$STOCK_IMG" --out "$WORK_DIR" 2>&1 || \
-  fail "unpack_bootimg failed — is the stock image a valid Android boot image?"
+FORMAT_OUT="$WORK_DIR/mkbootimg_args.txt"
+python3 "$UNPACK_PY" --boot_img "$STOCK_IMG" --out "$WORK_DIR" \
+    --format mkbootimg > "$FORMAT_OUT" \
+  || fail "unpack_bootimg failed — is the stock image a valid Android boot image?"
 
 log "Extracted files:"
 ls -lh "$WORK_DIR/"
 
-# Find ramdisk — handle naming differences across unpack_bootimg versions
-RAMDISK=""
-for name in ramdisk ramdisk.cpio ramdisk.img; do
-  if [ -f "$WORK_DIR/$name" ]; then
-    RAMDISK="$WORK_DIR/$name"
-    break
-  fi
-done
-
-if [ -z "$RAMDISK" ]; then
-  echo ""
-  echo "❌ No ramdisk found. Contents of work dir:"
-  ls -la "$WORK_DIR/"
-  fail "ramdisk not extracted — stock image may be corrupt or unsupported format"
-fi
-ok "Ramdisk : $(du -sh "$RAMDISK" | cut -f1)"
-
 ###############################################################################
-# Repack with our kernel + stock ramdisk
+# Repack — substitute only the kernel; every other stock field (cmdline,
+# header_version, os_version, os_patch_level, ramdisk, dtb, ...) is carried
+# over unchanged from the --format mkbootimg output above.
 ###############################################################################
 mkdir -p "$(dirname "$OUTPUT_IMG")"
+log "Repacking boot.img (stock header + our kernel)..."
 
-log "Repacking boot.img (header v${HEADER_VER})..."
+python3 - "$FORMAT_OUT" "$KERNEL_IMG" "$OUTPUT_IMG" "$WORK_DIR" "$MKBOOT_PY" <<'PYEOF'
+import shlex, subprocess, sys, os
 
-MKBOOT_ARGS=(
-  --kernel  "$KERNEL_IMG"
-  --ramdisk "$RAMDISK"
-  --output  "$OUTPUT_IMG"
-)
+format_out, kernel_img, output_img, work_dir, mkboot_py = sys.argv[1:6]
 
-# GKI v3/v4: add header_version; only add os_version/os_patch if valid
-if [ "$HEADER_VER" -ge 3 ]; then
-  MKBOOT_ARGS+=(--header_version "$HEADER_VER")
-  [ -n "$OS_VERSION" ] && MKBOOT_ARGS+=(--os_version     "$OS_VERSION")
-  [ -n "$OS_PATCH"   ] && MKBOOT_ARGS+=(--os_patch_level "$OS_PATCH")
-fi
+# Flags whose value is a file path that may need to be resolved relative to
+# the unpack output directory.
+file_flags = {'--ramdisk', '--vendor_ramdisk', '--dtb', '--second', '--recovery_dtbo'}
 
-# Include DTB if present (some v3 images carry it)
-if [ -f "$WORK_DIR/dtb" ]; then
-  MKBOOT_ARGS+=(--dtb "$WORK_DIR/dtb")
-  ok "DTB included"
-fi
+with open(format_out) as fh:
+    tokens = shlex.split(fh.read().strip())
 
-log "Running: mkbootimg ${MKBOOT_ARGS[*]}"
-mkbootimg "${MKBOOT_ARGS[@]}"
+args = [sys.executable, mkboot_py]
+i = 0
+while i < len(tokens):
+    tok = tokens[i]
+    i += 1
+    val = tokens[i] if i < len(tokens) else ''
+
+    if tok == '--output':
+        i += 1  # discard the embedded output path; we set our own below
+
+    elif tok == '--kernel':
+        # Substitute our freshly built kernel image.
+        args += ['--kernel', kernel_img]
+        i += 1  # skip the stock kernel path from the tokens
+
+    elif tok in file_flags:
+        abs_val = val if os.path.isabs(val) else os.path.join(work_dir, val)
+        if os.path.isfile(abs_val):
+            args += [tok, abs_val]
+        elif os.path.isfile(val):
+            args += [tok, val]
+        else:
+            print(f'[bootimg] Skipping {tok}: file not found ({abs_val})', file=sys.stderr)
+        i += 1
+
+    elif tok.startswith('--'):
+        # Scalar flags (--header_version, --os_version, --cmdline, ...)
+        if val and not val.startswith('--'):
+            args += [tok, val]
+            i += 1
+        # else: boolean flag with no value (not emitted by unpack_bootimg today)
+
+    # else: bare token with no leading '--', ignore
+
+args += ['--output', output_img]
+
+print('[bootimg] Running:', ' '.join(shlex.quote(a) for a in args))
+sys.exit(subprocess.call(args))
+PYEOF
 
 ###############################################################################
 # Result
