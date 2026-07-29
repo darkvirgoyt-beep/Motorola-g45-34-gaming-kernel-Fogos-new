@@ -128,6 +128,84 @@ PYEOF
 ###############################################################################
 [ -f "$OUTPUT_IMG" ] || fail "Output file not created — mkbootimg may have failed silently"
 
+###############################################################################
+# Preserve AVB2.0 block from stock image
+#
+# Motorola / Holi boot images have a 40+ MB AVB2.0 hash tree + vbmeta
+# descriptor appended after the ramdisk.  mkbootimg.py does not reconstruct
+# this block — so without this step the output image is ~75 MB while stock is
+# 96 MB, and some bootloaders refuse to load the truncated image even with
+# --disable-verity (they still look for the AVBf footer to locate the hash
+# tree).  We copy the entire AVB block verbatim from the stock image and
+# update the footer fields to point at the correct offset in the new image.
+###############################################################################
+log "Preserving AVB block from stock image..."
+python3 - "$STOCK_IMG" "$OUTPUT_IMG" <<'AVBEOF'
+import struct, sys
+
+STOCK_IMG  = sys.argv[1]
+OUTPUT_IMG = sys.argv[2]
+
+AVB_FOOTER_MAGIC  = b'AVBf'
+AVB_FOOTER_SIZE   = 64
+# Big-endian: 4s magic + I vmajor + I vminor + Q orig_size + Q vbmeta_off + Q vbmeta_size + 28s reserved
+AVB_FOOTER_FMT = '>4sIIQQQ28s'
+
+with open(STOCK_IMG, 'rb') as f:
+    stock = f.read()
+
+footer_raw = stock[-AVB_FOOTER_SIZE:]
+if footer_raw[:4] != AVB_FOOTER_MAGIC:
+    print('[bootimg] No AVBf footer in stock image — skipping AVB preservation')
+    sys.exit(0)
+
+magic, vmajor, vminor, orig_size, vbmeta_off, vbmeta_size, reserved = \
+    struct.unpack(AVB_FOOTER_FMT, footer_raw)
+
+print(f'[bootimg] Stock AVB  : vbmeta_offset={vbmeta_off:,}  vbmeta_size={vbmeta_size:,}  orig_image_size={orig_size:,}')
+
+# The vbmeta descriptor lives at stock[vbmeta_off : vbmeta_off + vbmeta_size]
+# followed by the 64-byte footer at the very end.
+# The AVB block in the partition is:
+#   [vbmeta_off]  vbmeta descriptor  (vbmeta_size bytes, starts with "AVB0")
+#   [vbmeta_off + vbmeta_size ... -64]  hash tree  (the bulk — typically 40+ MB)
+#   [last 64 bytes]  AVBf footer
+#
+# We copy the descriptor + hash tree verbatim (bootloader won't check hashes
+# when --disable-verity is used), then write an updated footer pointing at the
+# correct offsets in the new image.
+avb_payload = stock[vbmeta_off : -AVB_FOOTER_SIZE]   # descriptor + hash tree
+if len(avb_payload) == 0:
+    print('[bootimg] WARNING: AVB payload is empty — skipping AVB preservation')
+    sys.exit(0)
+
+with open(OUTPUT_IMG, 'rb') as f:
+    new_image = f.read()
+
+new_image_size = len(new_image)
+
+# Build updated footer: same magic/versions/vbmeta_size, new offsets
+new_footer = struct.pack(AVB_FOOTER_FMT,
+    magic,
+    vmajor,
+    vminor,
+    new_image_size,          # original_image_size = end of kernel+ramdisk in new image
+    new_image_size,          # vbmeta_offset       = right after the new image content
+    vbmeta_size,             # vbmeta_size stays the same (descriptor size unchanged)
+    reserved,                # reserved bytes unchanged
+)
+
+with open(OUTPUT_IMG, 'wb') as f:
+    f.write(new_image)
+    f.write(avb_payload)
+    f.write(new_footer)
+
+final_size = new_image_size + len(avb_payload) + AVB_FOOTER_SIZE
+hash_tree_mb = (len(avb_payload) - vbmeta_size) / 1024 / 1024
+print(f'[bootimg] ✓ AVB block appended  : {vbmeta_size} B descriptor + {hash_tree_mb:.1f} MB hash tree + 64 B footer')
+print(f'[bootimg] ✓ New image size      : {final_size/1024/1024:.1f} MB  (stock was {len(stock)/1024/1024:.1f} MB)')
+AVBEOF
+
 IN_SIZE=$(du -sh "$STOCK_IMG"  | cut -f1)
 OUT_SIZE=$(du -sh "$OUTPUT_IMG" | cut -f1)
 

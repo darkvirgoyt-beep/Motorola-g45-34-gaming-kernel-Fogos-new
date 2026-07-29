@@ -140,6 +140,8 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             ${DEFCONFIG}
 
+          EXTREME_FRAG="arch/arm64/configs/vendor/fogos_gaming_extreme.config"
+
           # Step 2 — Merge gaming optimisation fragment (audio, Bolero, WCD937x,
           #           Dolby Atmos, SW_SYNC for screen recording, GPU/CPU tuning …)
           #           merge_config.sh: -m = merge into existing .config, -O = output dir
@@ -149,6 +151,17 @@ jobs:
             echo "✅ Gaming fragment merged"
           else
             echo "⚠️ Gaming fragment not found — skipping merge"
+          fi
+
+          # Step 2b — Merge extreme gaming fragment (disables COMPAT_VDSO for
+          #            clang-14 Ubuntu 22.04 compat; sets PERFORMANCE governor;
+          #            adds extra gaming tuning on top of the base fragment)
+          if [ -f "${EXTREME_FRAG}" ]; then
+            bash scripts/kconfig/merge_config.sh -m -O "${OUT}" \
+              "${OUT}/.config" "${EXTREME_FRAG}"
+            echo "✅ Extreme gaming fragment merged"
+          else
+            echo "⚠️ Extreme gaming fragment not found — skipping"
           fi
 
           # Step 3 — Resolve any remaining unset symbols to safe defaults
