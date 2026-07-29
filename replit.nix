@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.python312Packages.flask
     pkgs.gcc
     pkgs.glibc
     pkgs.libelf
