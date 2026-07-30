@@ -1,14 +1,33 @@
 # SPDX-License-Identifier: GPL-2.0-only
 TECHPACK?=y
 
+###############################################################################
+# camera/ and audio/ are excluded from the in-tree (boot Image) build.
+#
+# Verified against this device's real stock boot.img: its kernel contains no
+# Spectra camera stack (cam_isp/cam_req_mgr/cam_sensor/spectra strings: zero
+# hits) and no techpack audio codec stack (bolero/wcd937x/wcd938x/qdsp6
+# strings: zero hits), while video/, display/, and dataipa/ are all present
+# there and stay included below. On this device those two subsystems ship as
+# vendor_dlkm modules, not as part of boot.img's kernel Image -- flashing a
+# custom boot.img (this repo's AnyKernel3 installer only replaces boot.img)
+# leaves the stock vendor_dlkm.img and its camera/audio .ko modules untouched,
+# so device camera/audio keep working unchanged after flashing.
+#
+# Building the full camera+audio stack into the monolithic Image anyway (the
+# techpack/Kbuild default) added ~15-17 MB of duplicate driver code that
+# stock never ships there, which is what pushed FogOS-boot past the
+# boot_a/boot_b partition's 96 MiB limit. See scripts/create_bootimg.sh's
+# size-budget gate for the corresponding hard-fail check.
+###############################################################################
 ifeq ($(BOARD_CONFIG_CAMERA_KERNEL_NAME),)
 $(info "using default camera path")
 techpack-dirs := $(shell find $(srctree)/techpack -maxdepth 1 -mindepth 1 -type d -not -name ".*"\
-                 | grep -v legacy)
+                 | grep -v legacy | grep -v camera | grep -v audio)
 else
 $(info "using camera-legacy/$(BOARD_CONFIG_CAMERA_KERNEL_NAME)")
 techpack-dirs := $(shell find $(srctree)/techpack -maxdepth 1 -mindepth 1 -type d -not -name ".*"\
-                 | grep -v camera)
+                 | grep -v camera | grep -v audio)
 techpack-dirs += $(shell find $(srctree)/techpack -maxdepth 2 -mindepth 2 -name "$(BOARD_CONFIG_CAMERA_KERNEL_NAME)")
 endif
 
