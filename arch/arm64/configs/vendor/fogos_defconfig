@@ -133,8 +133,7 @@ CONFIG_RCU_FAST_NO_HZ=y
 CONFIG_RCU_NOCB_CPU=y
 # end of RCU Subsystem
 
-CONFIG_IKCONFIG=y
-CONFIG_IKCONFIG_PROC=y
+# CONFIG_IKCONFIG is not set
 CONFIG_IKHEADERS=y
 # CONFIG_DUMP_GPIO_ON_SUSPEND is not set
 # CONFIG_DUMP_CLK_ON_SUSPEND is not set
@@ -194,9 +193,9 @@ CONFIG_RD_GZIP=y
 # CONFIG_RD_XZ is not set
 # CONFIG_RD_LZO is not set
 CONFIG_RD_LZ4=y
-CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+# CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE is not set
 # CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3 is not set
-# CONFIG_CC_OPTIMIZE_FOR_SIZE is not set
+CONFIG_CC_OPTIMIZE_FOR_SIZE=y
 CONFIG_SYSCTL=y
 CONFIG_HAVE_UID16=y
 CONFIG_SYSCTL_EXCEPTION_TRACE=y
@@ -250,7 +249,7 @@ CONFIG_PERF_KERNEL_SHARE=y
 
 CONFIG_VM_EVENT_COUNTERS=y
 CONFIG_VM_EVENT_COUNT_CLEAN_PAGE_RECLAIM=y
-CONFIG_SLUB_DEBUG=y
+# CONFIG_SLUB_DEBUG is not set
 # CONFIG_SLUB_MEMCG_SYSFS_ON is not set
 # CONFIG_COMPAT_BRK is not set
 # CONFIG_SLAB is not set
@@ -496,8 +495,15 @@ CONFIG_EFI=y
 # CONFIG_DMI is not set
 # end of Boot options
 
-CONFIG_BUILD_ARM64_KERNEL_COMPRESSION_GZIP=y
-# CONFIG_BUILD_ARM64_UNCOMPRESSED_KERNEL is not set
+# NOTE(fogos): This device's bootloader only boots a RAW/uncompressed kernel
+# Image (verified against the stock boot.img header's ARM64 magic offset).
+# Do NOT switch this to gzip/lz4 compression -- the bootloader cannot
+# decompress it and the device will bootloop. If the Image is too large,
+# shrink it via CC_OPTIMIZE_FOR_SIZE and debug-option trims instead; the
+# size-budget check in scripts/create_bootimg.sh will fail the build loudly
+# if it does not fit.
+# CONFIG_BUILD_ARM64_KERNEL_COMPRESSION_GZIP is not set
+CONFIG_BUILD_ARM64_UNCOMPRESSED_KERNEL=y
 CONFIG_BUILD_ARM64_DT_OVERLAY=y
 CONFIG_TLB_CONF_HANDLER=y
 
@@ -2592,7 +2598,7 @@ CONFIG_MSM_ADSPRPC=y
 # CONFIG_ADSPRPC_QGKI is not set
 # CONFIG_VIRTIO_EAVB is not set
 # CONFIG_VIRTIO_FASTRPC is not set
-CONFIG_MSM_RDBG=y
+# CONFIG_MSM_RDBG is not set
 CONFIG_RANDOM_TRUST_BOOTLOADER=y
 # end of Character devices
 

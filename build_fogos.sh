@@ -69,6 +69,13 @@ log_error()   { echo -e "${RED}[FogOS] ✗ $1${NC}"; exit 1; }
 # Echo the first kernel image produced by the build, or nothing if none exist.
 # Shared by build_kernel (verify) and package_zip (copy) so the candidate
 # list lives in exactly one place.
+#
+# Order matters and must NOT change: plain "Image" stays first. The Holi
+# bootloader on this device only boots a RAW, uncompressed kernel (verified
+# against the stock boot.img header's ARM64 magic) -- it cannot decompress
+# Image.gz/Image.lz4, so preferring those would bootloop the device. They
+# are listed only as fallbacks in case a toolchain change ever stops
+# emitting plain Image.
 find_kernel_image() {
   local img
   for img in \

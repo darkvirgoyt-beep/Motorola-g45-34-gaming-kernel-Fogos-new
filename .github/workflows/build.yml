@@ -209,6 +209,13 @@ jobs:
       - name: 🔍 Find Kernel Image
         run: |
           # fogos_defconfig sets CONFIG_BUILD_ARM64_UNCOMPRESSED_KERNEL=y → Image
+          # is what actually ships. DO NOT reorder this list to prefer
+          # Image.gz/Image.lz4/Image.gz-dtb over plain Image: the Holi
+          # bootloader on this device only boots a RAW, uncompressed kernel
+          # (verified against the stock boot.img header) and will bootloop on
+          # a compressed one. Enabling kernel compression must not be
+          # attempted without first confirming bootloader decompression
+          # support.
           # Use a local variable to track success; $GITHUB_ENV writes are only
           # visible to *subsequent* steps, not the current shell.
           found_kernel=""

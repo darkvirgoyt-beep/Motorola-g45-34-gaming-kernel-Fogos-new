@@ -208,11 +208,42 @@ AVBEOF
 
 IN_SIZE=$(du -sh "$STOCK_IMG"  | cut -f1)
 OUT_SIZE=$(du -sh "$OUTPUT_IMG" | cut -f1)
+OUT_BYTES=$(wc -c < "$OUTPUT_IMG")
+
+###############################################################################
+# Hard size-budget gate
+#
+# The Moto G45/G34 (Holi) boot_a/boot_b partitions are 100,663,296 bytes
+# (96 MiB) -- fastboot's preflash validation rejects anything bigger. A build
+# has shipped an oversized image before (compiled fine, only failed at flash
+# time on the actual device), so refuse to hand back an image that cannot
+# fit instead of only discovering it at flash time.
+###############################################################################
+BOOT_PARTITION_SIZE_BYTES="${BOOT_PARTITION_SIZE_BYTES:-100663296}"  # 96 MiB, device partition table
+SIZE_MARGIN_BYTES="${SIZE_MARGIN_BYTES:-2097152}"                    # 2 MiB safety margin
+BUDGET_BYTES=$((BOOT_PARTITION_SIZE_BYTES - SIZE_MARGIN_BYTES))
+
+if [ "$OUT_BYTES" -gt "$BUDGET_BYTES" ]; then
+  OVER_BYTES=$((OUT_BYTES - BUDGET_BYTES))
+  OVER_MB=$(( (OVER_BYTES + 524288) / 1048576 ))
+  echo ""
+  echo -e "${RED}[bootimg] ✗ Boot image exceeds the size budget -- refusing to ship it.${NC}"
+  echo -e "${RED}[bootimg]   Output          : $OUT_BYTES bytes ($OUT_SIZE)${NC}"
+  echo -e "${RED}[bootimg]   Partition size  : $BOOT_PARTITION_SIZE_BYTES bytes (96 MiB)${NC}"
+  echo -e "${RED}[bootimg]   Budget (-margin): $BUDGET_BYTES bytes${NC}"
+  echo -e "${RED}[bootimg]   Over by         : $OVER_BYTES bytes (~${OVER_MB} MiB)${NC}"
+  echo -e "${RED}[bootimg] This would fail fastboot's preflash validation on-device.${NC}"
+  echo -e "${RED}[bootimg] Shrink the compiled kernel (CC_OPTIMIZE_FOR_SIZE, drop debug-only${NC}"
+  echo -e "${RED}[bootimg] Kconfig options) -- do not compress it instead: this bootloader${NC}"
+  echo -e "${RED}[bootimg] cannot decompress a compressed Image and will bootloop.${NC}"
+  echo ""
+  exit 1
+fi
 
 echo ""
 ok "Boot image created successfully!"
 ok "  Stock  : $IN_SIZE"
-ok "  Output : $OUT_SIZE  →  $OUTPUT_IMG"
+ok "  Output : $OUT_SIZE  →  $OUTPUT_IMG  ($OUT_BYTES / $BUDGET_BYTES bytes budget)"
 echo ""
 echo -e "${CYAN}Flash via fastboot:${NC}"
 echo "  adb reboot bootloader"
