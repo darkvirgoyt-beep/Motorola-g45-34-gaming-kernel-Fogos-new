@@ -8,4 +8,4 @@ Kotlin Android companion app for FogOS. It uses root (`su -c`) to write `/data/l
 gradle -p fogos-control assembleDebug
 ```
 
-Use JDK 21 or a Kotlin/Gradle-supported JDK if the host defaults to a newer Java feature release.
+The project uses Groovy Gradle scripts so task discovery works on newer host JDKs; use an Android Gradle Plugin supported JDK such as JDK 21 for release builds.

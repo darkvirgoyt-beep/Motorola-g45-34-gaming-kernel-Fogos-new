@@ -19,3 +19,11 @@ This tree is a Qualcomm Android 5.4 QGKI kernel for ARM64 with Motorola/Holi ven
 * Hard-coding one KGSL sysfs layout as mandatory.
 * Kernel ABI changes that can break Android 17 vendor modules.
 * Aggressive LMK/ZRAM changes that can kill background services or cause swap stalls.
+
+## Android 17 audio/Dolby compatibility
+
+Evolution X Android 17 should keep Motorola's Holi `techpack/audio` route definitions as the single active audio stack. FogOS therefore avoids forcing duplicate generic in-tree Qualcomm ASoC machine drivers from the gaming fragment and relies on `techpack/audio/config/holiauto.conf` for QTI post-processing, Bolero, WCD937x, and hardware-dependent routing. Runtime scripts also avoid changing `audio.*`/`ro.audio.*` properties after boot, because that can desynchronise Dolby effects from AudioFlinger policy and crash Dolby/audioserver.
+
+## Boot image size/build compatibility
+
+The Moto G45/G34 boot partition is treated as a strict 96 MiB target. FogOS keeps the raw uncompressed ARM64 `Image` required by the bootloader, but the extreme fragment now preserves `CC_OPTIMIZE_FOR_SIZE` and disables debug-info/kallsyms bloat so GitHub Actions can create a boot image that fits instead of failing at the final flashable-image step.
