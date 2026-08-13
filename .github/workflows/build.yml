@@ -26,6 +26,10 @@ on:
       - 'build_fogos.sh'
       - 'scripts/**'
       - 'stock/boot.img'
+      - 'magisk/**'
+      - 'anykernel3/**'
+      - 'fogos-control/**'
+      - 'docs/**'
       - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
@@ -176,13 +180,14 @@ jobs:
 
           # Print the audio-critical configs so we can verify in the log
           echo "── Audio config check ──────────────────────────────────"
-          for cfg in SND_SOC_BOLERO SND_SOC_WCD937X SND_SOC_HOLI \
-                     TX_MACRO RX_MACRO VA_MACRO WSA_MACRO \
-                     QTI_PP REGMAP_WCD_IRQ MFD_WCD SW_SYNC \
-                     VIDEO_QCOM_VENUS HDCP_QSEECOM; do
-            val=$(grep "^CONFIG_${cfg}=" "${OUT}/.config" 2>/dev/null || echo "# NOT SET")
+          for cfg in AUDIO_QGKI REGMAP_WCD_IRQ MFD_WCD \
+                     SND_SOC_FS1815 SW_SYNC VIDEO_QCOM_VENUS \
+                     HDCP_QSEECOM SND_SOC_QCOM; do
+            val=$(grep -E "^(CONFIG_${cfg}=|# CONFIG_${cfg} is not set)" "${OUT}/.config" 2>/dev/null || echo "# NOT SET")
             echo "  ${cfg}: ${val}"
           done
+          echo "  techpack holiauto Dolby/QTI PP:"
+          grep -E "CONFIG_(QTI_PP|SND_HWDEP_ROUTING|SND_SOC_BOLERO|SND_SOC_HOLI|SND_SOC_WCD937X)="             techpack/audio/config/holiauto.conf | sed 's/^/    /'
           echo "────────────────────────────────────────────────────────"
 
       # ──────────────────────────────────────────────────────────────────────
@@ -337,7 +342,7 @@ jobs:
             |-------|-------|
             | **Developer** | Prince · VirgoYT707 |
             | **Device** | Motorola G45 / G34 (SM6375 / Holi) |
-            | **Android** | 16.0.0 · Security Patch 2026-06 |
+            | **Android** | 17 · Evolution X 12.0 · Security Patch 2026-08 |
             | **Kernel** | Linux 5.4.302 |
             | **Build** | ${{ env.DATE }} |
 
@@ -366,8 +371,8 @@ jobs:
 
             | Area | Improvement |
             |------|-------------|
-            | 🔊 **Audio** | Full QDSP6 + WCD937x + Bolero stack restored — speaker, mic, earpiece, BT all working |
-            | 🎵 **Dolby Atmos** | QTI_PP + MFD_WCD + REGMAP_WCD_IRQ enabled — no crash loop, spatial audio working |
+            | 🔊 **Audio** | Stock Motorola/Holi techpack audio preserved — speaker, mic, earpiece, BT stay on vendor routes |
+            | 🎵 **Dolby Atmos** | QTI_PP + MFD_WCD + REGMAP_WCD_IRQ kept without forcing duplicate in-tree QCOM ASoC drivers |
             | 📺 **Video Decode** | Venus hardware decoder enabled — Reels, YT Shorts, video calls no longer stutter |
             | 🔐 **Widevine L1** | HDCP_QSEECOM enabled — HD Netflix/Hotstar/Prime now work |
             | 🌡️ **Thermal** | 3 profiles: Balanced 75°C / Performance 85°C / Extreme Gaming 85°C |

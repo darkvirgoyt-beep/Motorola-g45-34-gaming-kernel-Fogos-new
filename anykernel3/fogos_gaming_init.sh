@@ -876,22 +876,16 @@ log "Render: Vulkan backend + triple-buffer + SF@RT-99 + frame pacing ✓"
 
 log "Audio: Low latency mode..."
 
-# Disable audio offload (causes stutter on some kernels)
-setprop audio.offload.disable 1                 2>/dev/null
-setprop audio.deep_buffer.media false           2>/dev/null
-setprop af.fast_track_multiplier 1              2>/dev/null
-
-# Lower audio thread latency
-setprop ro.audio.flinger_standbytime_ms 300     2>/dev/null
-
-# Audio boost: pin audioserver to big cores
-for PID in $(pgrep -f "audioserver\|audio" 2>/dev/null); do
-    renice -n -10 -p "$PID" 2>/dev/null
-    chrt -f -p 45 "$PID" 2>/dev/null
-    taskset -p f0 "$PID" 2>/dev/null
+# Keep Dolby/AudioFlinger policy stock. Runtime writes to audio.* or ro.audio.*
+# after boot can desynchronise vendor Dolby effects from the Android 17 audio
+# policy and cause repeated Dolby/audioserver crashes. We only apply a mild
+# scheduler hint to audioserver, and avoid SCHED_FIFO for mixer/effect threads.
+for PID in $(pgrep -x audioserver 2>/dev/null); do
+    renice -n -5 -p "$PID" 2>/dev/null
+    taskset -p 30 "$PID" 2>/dev/null
 done
 
-log "Audio: Low latency active ✓"
+log "Audio: Dolby-safe stock policy preserved ✓"
 
 ###############################################################################
 # APP LAUNCH SPEED — INSTANT OPEN
