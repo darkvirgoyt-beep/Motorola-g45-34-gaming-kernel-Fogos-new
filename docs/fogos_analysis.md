@@ -27,3 +27,7 @@ Evolution X Android 17 should keep Motorola's Holi `techpack/audio` route defini
 ## Boot image size/build compatibility
 
 The Moto G45/G34 boot partition is treated as a strict 96 MiB target. FogOS keeps the raw uncompressed ARM64 `Image` required by the bootloader, but the extreme fragment now preserves `CC_OPTIMIZE_FOR_SIZE` and disables debug-info/kallsyms bloat so GitHub Actions can create a boot image that fits instead of failing at the final flashable-image step.
+
+## Camera CCI link fix
+
+Moto Holi ext configs use `CONFIG_CAMERA_CCI_INTF=m`; FogOS now matches that so `cci_intf` is built as a DLKM-side camera helper instead of being linked into `vmlinux`. This fixes clang LTO/CFI link failures around `cci_intf_ioctl` when the rest of Spectra camera is kept outside the boot Image, and it avoids unnecessary boot partition growth.
