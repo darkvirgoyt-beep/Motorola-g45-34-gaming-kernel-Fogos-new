@@ -1,5 +1,0 @@
-plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
-
-android { namespace = "com.fogos.control"; compileSdk = 37
-    defaultConfig { applicationId = "com.fogos.control"; minSdk = 29; targetSdk = 37; versionCode = 1; versionName = "1.0" }
-}
