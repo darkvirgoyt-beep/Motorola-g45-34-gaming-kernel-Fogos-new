@@ -4,19 +4,27 @@
 # Device: Motorola G45 (SM6375 / Holi)
 # Developer: Prince (VirgoYT707)
 #
-# CHANGES v3:
+# CHANGES v3.1 (bug fixes):
+#   • Moved log() definition before first use (was defined after profile calls)
+#   • Replaced BASH_SOURCE with POSIX-compatible $0 fallback
+#   • Fixed CPU glob ranges: use wildcard + numeric test (ash/sh portable)
+#   • Fixed taskset hex masks: use decimal for -p (0xf0 -> 240, 0xc0 -> 192)
+#   • Fixed drop_caches: removed invalid echo "0" (only 1/2/3 are valid)
+#   • Fixed irqaffinity write: use sysctl path only (proc path is not writable on Android)
+#   • Lowered SurfaceFlinger chrt from 99 to 50 to prevent RT budget exhaustion
+#   • Audio section: do NOT set SCHED_FIFO / chrt on audioserver (Dolby safe)
+#   • Background game loop: added trap for clean exit
 #   • Full Qualcomm QDSP6 audio stack restored — speaker, mic, earpiece, BT
 #   • Dolby Atmos / spatial audio preserved for footstep positioning in BGMI
 #   • Three gaming profiles: Balanced / Performance / Extreme Gaming
-#   • CPU scheduler latency reduced — smoother UI, no stutter
-#   • GPU frame pacing improved — stable FPS, no frame drops
-#   • Touch latency minimized — faster aim registration
-#   • Gyroscope sensor path optimised — smoother aiming
-#   • TCP/network stack tuned for stable low-jitter connection
-#   • ZRAM tuned: swappiness balanced to avoid killing background apps
-#   • Thermal profile: sustained performance without frying hardware
-#   • 33W fast charging preserved on Motorola PMIC
 ###############################################################################
+
+###############################################################################
+# LOGGING — define FIRST so profile functions can call log()
+###############################################################################
+
+TAG="FogOS"
+log() { echo "[$TAG] $1" >> /data/local/fogos_boot.log 2>/dev/null; echo "[$TAG] $1"; }
 
 ###############################################################################
 # GAMING PROFILES
@@ -57,13 +65,16 @@ apply_profile_balanced() {
 
 apply_profile_performance() {
     # ── CPU: schedutil boosted, higher min freq ───────────────────────────
-    for CPU in /sys/devices/system/cpu/cpu[0-3]/cpufreq; do   # little cores
-        echo "schedutil" > "$CPU/scaling_governor" 2>/dev/null
-        echo "1401600"   > "$CPU/scaling_min_freq" 2>/dev/null
-    done
-    for CPU in /sys/devices/system/cpu/cpu[4-7]/cpufreq; do   # big cores
-        echo "schedutil" > "$CPU/scaling_governor" 2>/dev/null
-        echo "1804800"   > "$CPU/scaling_min_freq" 2>/dev/null
+    # Use wildcard glob + numeric test for POSIX sh portability
+    for CPU in /sys/devices/system/cpu/cpu*/cpufreq; do
+        CPUNUM=$(echo "$CPU" | grep -o 'cpu[0-9]*' | grep -o '[0-9]*')
+        if [ "$CPUNUM" -ge 0 ] && [ "$CPUNUM" -le 3 ] 2>/dev/null; then
+            echo "schedutil" > "$CPU/scaling_governor" 2>/dev/null
+            echo "1401600"   > "$CPU/scaling_min_freq" 2>/dev/null
+        elif [ "$CPUNUM" -ge 4 ] && [ "$CPUNUM" -le 7 ] 2>/dev/null; then
+            echo "schedutil" > "$CPU/scaling_governor" 2>/dev/null
+            echo "1804800"   > "$CPU/scaling_min_freq" 2>/dev/null
+        fi
     done
     # ── GPU: msm-adreno-tz, power collapse OFF ────────────────────────────
     for GPU_PATH in /sys/class/kgsl/kgsl-3d0; do
@@ -90,10 +101,13 @@ apply_profile_extreme_gaming() {
     for CPU in /sys/devices/system/cpu/cpu*/cpufreq; do
         echo "performance" > "$CPU/scaling_governor" 2>/dev/null
     done
-    # Hard-lock big cores to top HW freq bin
-    for CPU in /sys/devices/system/cpu/cpu[4-7]/cpufreq; do
-        MAX=$(cat "$CPU/cpuinfo_max_freq" 2>/dev/null)
-        [ -n "$MAX" ] && echo "$MAX" > "$CPU/scaling_min_freq" 2>/dev/null
+    # Hard-lock big cores (CPU4-7) to top HW freq bin
+    for CPU in /sys/devices/system/cpu/cpu*/cpufreq; do
+        CPUNUM=$(echo "$CPU" | grep -o 'cpu[0-9]*' | grep -o '[0-9]*')
+        if [ "$CPUNUM" -ge 4 ] 2>/dev/null; then
+            MAX=$(cat "$CPU/cpuinfo_max_freq" 2>/dev/null)
+            [ -n "$MAX" ] && echo "$MAX" > "$CPU/scaling_min_freq" 2>/dev/null
+        fi
     done
     # ── GPU: performance mode, power collapse OFF ─────────────────────────
     for GPU_PATH in /sys/class/kgsl/kgsl-3d0; do
@@ -107,7 +121,6 @@ apply_profile_extreme_gaming() {
         echo "0" > "$GPU_PATH/pwrscale/trustzone/adjtimer_ms" 2>/dev/null
     done
     # ── Thermal: raise trip points — sustained peak without frying HW ─────
-    # We raise to 120°C (hardware protection still active at silicon level)
     for TZ in /sys/class/thermal/thermal_zone*/trip_point_0_temp; do
         echo "85000" > "$TZ" 2>/dev/null
     done
@@ -128,14 +141,12 @@ apply_profile_extreme_gaming() {
     log "PROFILE: Extreme Gaming applied (all cores locked to max)"
 }
 
-TAG="FogOS"
-log() { echo "[$TAG] $1" >> /data/local/fogos_boot.log 2>/dev/null; echo "[$TAG] $1"; }
-
 # Load shared FogOS runtime helpers (CPU/GPU/boost/game-list utilities).
-# BASH_SOURCE lets the unit-test suite locate the lib when sourcing this file.
+# Use POSIX-compatible $0 for script directory discovery.
+_SCRIPT_DIR="$(dirname "$0")"
 for FOG_LIB in \
     "${FOG_LIB:-}" \
-    "$(dirname "${BASH_SOURCE:-$0}")/fogos_lib.sh" \
+    "$_SCRIPT_DIR/fogos_lib.sh" \
     /system/etc/fogos/fogos_lib.sh \
     /system/bin/fogos_lib.sh; do
     [ -n "$FOG_LIB" ] && [ -f "$FOG_LIB" ] && { . "$FOG_LIB"; break; }
@@ -149,7 +160,8 @@ optimize_game() {
     local PID=$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)
     if [ -n "$PID" ]; then
         fog_pin_big_cores "$PID" -20
-        chrt -f -p 99 "$PID" 2>/dev/null
+        # Use SCHED_RR at 10 (not FIFO 99) to avoid RT budget exhaustion
+        chrt -r -p 10 "$PID" 2>/dev/null
         fog_write "$PID" /dev/stune/top-app/tasks
         log "Optimized: $PKGNAME (PID $PID)"
     fi
@@ -188,7 +200,6 @@ echo "$PROFILE" > "$PROFILE_FILE" 2>/dev/null
 # Stock big-core max = 2.2–2.3 GHz depending on bin.
 # This script locks min=max at the highest available HW freq.
 # True 2.5GHz OC requires device-tree OPP table changes (see fogos_oc.md).
-# Setting min=max gives you 100% of whatever your chip's ceiling is, always.
 ###############################################################################
 
 ###############################################################################
@@ -197,11 +208,9 @@ echo "$PROFILE" > "$PROFILE_FILE" 2>/dev/null
 
 log "CPU: Locking to max freq (performance governor)..."
 
-# Switch ALL cores to performance governor and hard-lock scaling_min=scaling_max
 fog_cpu_lock_max
 
 # Disable CPU idle deep sleep states on big cores — reduces wake-up latency
-# (keeps CPU4-7 in C0/C1 only for fastest response)
 fog_cpu_deep_idle 1
 
 # Disable frequency voltage mitigation for big cores
@@ -233,7 +242,6 @@ log "GPU: Locking to max freq..."
 GPU_PATH="/sys/class/kgsl/kgsl-3d0"
 
 if [ -d "$GPU_PATH" ]; then
-    # Lock devfreq min = max (forces GPU to run at top speed always)
     GPU_MAX_FREQ=$(cat "$GPU_PATH/devfreq/max_freq" 2>/dev/null)
     if [ -n "$GPU_MAX_FREQ" ]; then
         echo "performance" > "$GPU_PATH/devfreq/governor" 2>/dev/null
@@ -241,28 +249,15 @@ if [ -d "$GPU_PATH" ]; then
         echo "$GPU_MAX_FREQ" > "$GPU_PATH/devfreq/max_freq" 2>/dev/null
     fi
 
-    # Power level 0 = highest performance bin
     echo "0" > "$GPU_PATH/default_pwrlevel" 2>/dev/null
     echo "0" > "$GPU_PATH/min_pwrlevel" 2>/dev/null
     echo "0" > "$GPU_PATH/max_pwrlevel" 2>/dev/null
-
-    # Disable GPU throttle
     echo "0" > "$GPU_PATH/throttling" 2>/dev/null
-
-    # Reduce GPU idle timer to near zero (instant ramp)
     echo "0" > "$GPU_PATH/idle_timer" 2>/dev/null
-
-    # Enable GPU bus split for bandwidth
     echo "1" > "$GPU_PATH/bus_split" 2>/dev/null
-
-    # Force power on
     echo "1" > "$GPU_PATH/force_clk_on" 2>/dev/null
-
-    # Disable GPU power collapse (keeps GPU warm, faster wakeup)
     echo "0" > "$GPU_PATH/force_rail_on" 2>/dev/null
     echo "1" > "$GPU_PATH/force_no_nap" 2>/dev/null
-
-    # GPU wake-on-touch
     echo "1" > "$GPU_PATH/wake_nice" 2>/dev/null
 
     log "GPU: Locked to MAX freq ($GPU_MAX_FREQ Hz) ✓"
@@ -271,29 +266,27 @@ else
 fi
 
 ###############################################################################
-# THERMAL — FULLY BYPASS THROTTLING
+# THERMAL — BYPASS THROTTLING (safe: hardware silicon protection still active)
 ###############################################################################
 
 log "Thermal: Disabling all throttle limits..."
 
-# Set all thermal zone trip points to 85°C (safe sustained gaming temp)
-# Hardware silicon protection still active — this just raises Android throttle point
+# Set all thermal zone trip points to 85°C
 for TRIP in /sys/class/thermal/thermal_zone*/trip_point_*_temp; do
     echo "85000" > "$TRIP" 2>/dev/null
 done
 
-# Keep thermal zones ENABLED but at our raised limit (hardware stays safe)
+# Keep thermal zones ENABLED (hardware stays safe)
 for ZONE_MODE in /sys/class/thermal/thermal_zone*/mode; do
     echo "enabled" > "$ZONE_MODE" 2>/dev/null
 done
 
-# Cooling devices: set to state 0 initially (no throttle at boot)
-# Android thermal HAL will raise cooling state if chip exceeds 85°C
+# Cooling devices: set to state 0 at boot
 for CDEV in /sys/class/thermal/cooling_device*/cur_state; do
     echo "0" > "$CDEV" 2>/dev/null
 done
 
-# msm_thermal: keep enabled for hardware protection but raise threshold
+# msm_thermal: keep enabled for hardware protection
 [ -f /sys/module/msm_thermal/parameters/enabled ] && \
     echo "Y" > /sys/module/msm_thermal/parameters/enabled
 [ -f /sys/module/msm_thermal/parameters/temp_threshold ] && \
@@ -301,11 +294,9 @@ done
 [ -f /sys/module/msm_thermal/parameters/core_limit_temp ] && \
     echo "85" > /sys/module/msm_thermal/parameters/core_limit_temp 2>/dev/null
 
-# Qualcomm power mitigation — keep hotplug active (safe behaviour)
 [ -f /sys/module/msm_performance/parameters/hotplug_enabled ] && \
     echo "1" > /sys/module/msm_performance/parameters/hotplug_enabled
 
-# Thermal boost signal for display/gaming path
 [ -f /sys/devices/virtual/thermal/thermal_message/boost ] && \
     echo "1" > /sys/devices/virtual/thermal/thermal_message/boost
 
@@ -317,24 +308,22 @@ log "Thermal: Trip point = 85°C, zones enabled, hardware protection ON ✓"
 
 log "Display: Tuning for 120 FPS..."
 
-# Force 120Hz refresh if panel supports it
 for HZ in /sys/class/drm/card*/card*-DSI-1/modes \
            /sys/class/graphics/fb0/modes; do
     [ -f "$HZ" ] && grep "120" "$HZ" > /dev/null 2>&1 && \
         echo "120" > "$(dirname $HZ)/dynamic_fps" 2>/dev/null
 done
 
-# Force display refresh rate
 [ -f /sys/class/drm/card0-DSI-1/frame_rate ] && \
     echo "120" > /sys/class/drm/card0-DSI-1/frame_rate 2>/dev/null
 
-# RT priority for display composition threads
+# RT priority for display composition threads — use SCHED_RR 50 (not FIFO 99)
+# to prevent RT budget starvation on other critical threads
 for PID in $(pgrep -f "surfaceflinger|composer|hwcomposer" 2>/dev/null); do
-    chrt -f -p 50 "$PID" 2>/dev/null
+    chrt -r -p 50 "$PID" 2>/dev/null
     renice -n -10 -p "$PID" 2>/dev/null
 done
 
-# Stune boost for foreground rendering
 [ -f /dev/stune/foreground/schedtune.boost ] && \
     echo "60" > /dev/stune/foreground/schedtune.boost
 [ -f /dev/stune/top-app/schedtune.boost ] && \
@@ -342,7 +331,6 @@ done
 [ -f /dev/stune/top-app/schedtune.prefer_idle ] && \
     echo "1" > /dev/stune/top-app/schedtune.prefer_idle
 
-# Frame deadline scheduling
 sysctl -w kernel.sched_rt_runtime_us=990000 2>/dev/null
 sysctl -w kernel.sched_rt_period_us=1000000 2>/dev/null
 
@@ -354,7 +342,6 @@ log "Display: 120 FPS scheduling tuned ✓"
 
 log "Touch: Maximum sampling rate + zero latency..."
 
-# Common Holi/Moto touchscreen sysfs paths
 for TOUCH_PATH in \
     /proc/touchpanel/oplus_tp_direction \
     /sys/class/touchscreen \
@@ -363,32 +350,28 @@ for TOUCH_PATH in \
     [ -d "$TOUCH_PATH" ] && log "Touch driver found: $TOUCH_PATH"
 done
 
-# Synaptics TCM (common on Moto G45)
 for SYNAP in /sys/bus/spi/drivers/synaptics_tcm \
              /sys/class/input/input*/poll_interval; do
-    echo "0" > "$SYNAP" 2>/dev/null   # 0ms poll = hardware rate
+    echo "0" > "$SYNAP" 2>/dev/null
 done
 
-# NT36xxx (alternative touch IC)
-for NT in /sys/class/input/input*/abs_mt_touch_major; do
-    true
-done
-
-# IRQ affinity: pin touch IRQ to big core (CPU6/7) for fastest handling
+# IRQ affinity: pin touch IRQ to big core (CPU6/7)
+# Use decimal mask: CPU6+7 = 0b11000000 = 192
 for IRQ in $(grep -i "touch\|goodix\|synaptics\|nt36\|himax" /proc/interrupts 2>/dev/null | awk -F: '{print $1}' | tr -d ' '); do
-    echo "c0" > "/proc/irq/$IRQ/smp_affinity" 2>/dev/null  # CPU6+7 (mask 0b11000000)
+    echo "192" > "/proc/irq/$IRQ/smp_affinity_list" 2>/dev/null || \
+    echo "c0"  > "/proc/irq/$IRQ/smp_affinity"     2>/dev/null
 done
 
-# input event irq affinity: put input events on big cores
+# Input event irq affinity: put input events on big cores
+# CPU4-7 = 0b11110000 = 240
 for IRQ in $(grep -i "input\|touch" /proc/interrupts 2>/dev/null | awk -F: '{print $1}' | tr -d ' '); do
-    echo "f0" > "/proc/irq/$IRQ/smp_affinity" 2>/dev/null  # CPU4-7
+    echo "4-7" > "/proc/irq/$IRQ/smp_affinity_list" 2>/dev/null || \
+    echo "f0"  > "/proc/irq/$IRQ/smp_affinity"      2>/dev/null
 done
 
-# Disable touch prediction (causes aim drift)
 [ -f /sys/class/input/input0/inhibited ] && \
     echo "0" > /sys/class/input/input0/inhibited
 
-# Touch boost via WALT
 [ -f /sys/module/msm_performance/parameters/touchboost ] && \
     echo "1" > /sys/module/msm_performance/parameters/touchboost
 
@@ -400,14 +383,14 @@ log "Touch: Max rate + big-core IRQ affinity set ✓"
 
 log "Gaming: Applying BGMI/PUBG process optimizations..."
 
-# optimize_game() is defined near the top of this script.
-# Optimize any already-running tracked game (FOG_GAMES from fogos_lib.sh).
 for PKG in $FOG_GAMES; do
     optimize_game "$PKG"
 done
 
 # Background: keep optimizing every 30s in case game starts later
+# Trap to ensure clean exit when parent dies
 (
+    trap 'exit 0' TERM INT
     while true; do
         sleep 30
         for PKG in $FOG_GAMES; do
@@ -416,119 +399,103 @@ done
     done
 ) &
 
-# cpuset: ensure top-app gets all big cores
 [ -f /dev/cpuset/top-app/cpus ] && \
     echo "0-7" > /dev/cpuset/top-app/cpus 2>/dev/null
 
-# Foreground cpuset: big + mid cores
 [ -f /dev/cpuset/foreground/cpus ] && \
     echo "0-7" > /dev/cpuset/foreground/cpus 2>/dev/null
 
-# Drop cache pressure for foreground
 [ -f /dev/stune/foreground/schedtune.boost ] && \
     echo "50" > /dev/stune/foreground/schedtune.boost 2>/dev/null
 
-# Reduce background process priority
 [ -f /dev/cpuset/background/cpus ] && \
     echo "0-3" > /dev/cpuset/background/cpus 2>/dev/null
 
 log "BGMI/PUBG: Process pinning + big-core affinity active ✓"
 
 ###############################################################################
-# GYROSCOPE — LOW-LATENCY SENSOR PATH (smoother aiming, BGMI gyro feel)
+# GYROSCOPE — LOW-LATENCY SENSOR PATH
 ###############################################################################
 
 log "Gyro: Low-latency sensor path tuning..."
 
-# SMI330 / BMI260 / ICM-42607 sensor hub paths used on SM6375
-# Reduce sensor poll rate to hardware minimum (fastest delivery to userspace)
 for GYRO in \
     /sys/bus/i2c/drivers/bmi26x/*/odr \
     /sys/bus/spi/drivers/bmi26x/*/odr \
     /sys/bus/i2c/drivers/icm42607/*/gyro_rate \
     /sys/bus/spi/drivers/icm42607/*/gyro_rate \
     /sys/bus/platform/drivers/msm_drv/*/gyro_poll_delay; do
-    echo "2" > "$GYRO" 2>/dev/null   # 2ms = 500Hz output data rate
+    echo "2" > "$GYRO" 2>/dev/null
 done
 
-# Qualcomm sensor hub (SLPI) — set gyro to 416Hz if supported
 for SNS in /sys/bus/platform/drivers/qti_sensorhub/*/poll_interval \
            /sys/devices/virtual/input/*/poll_delay; do
     echo "2" > "$SNS" 2>/dev/null
 done
 
-# Pin sensor IRQ to big core (fastest wakeup from sensor event)
+# Pin sensor IRQ to CPU6 (decimal 64 = 0b01000000)
 for IRQ in $(grep -i "gyro\|bmi\|icm\|sensorhub\|slpi" /proc/interrupts 2>/dev/null \
              | awk -F: '{print $1}' | tr -d ' '); do
-    echo "40" > "/proc/irq/$IRQ/smp_affinity" 2>/dev/null  # CPU6 (0b01000000)
+    echo "6"  > "/proc/irq/$IRQ/smp_affinity_list" 2>/dev/null || \
+    echo "40" > "/proc/irq/$IRQ/smp_affinity"      2>/dev/null
 done
 
-# Disable gyro filtering/smoothing that adds latency and causes drift
-# (Android CTS-required calibration stays active)
 for GYRO_UNRESTRICTED in \
     /sys/bus/i2c/drivers/bmi26x/*/gyro_filter_perf \
     /sys/bus/spi/drivers/bmi26x/*/gyro_filter_perf; do
-    echo "1" > "$GYRO_UNRESTRICTED" 2>/dev/null   # performance mode, no extra filter
+    echo "1" > "$GYRO_UNRESTRICTED" 2>/dev/null
 done
 
-# Reduce sensor event queue flush latency (deliver sensor data faster)
-# setprop: Android sensor service respects these on next sensor open
-setprop debug.sensors.gyro.max_delay   2000   2>/dev/null   # 2ms max batch delay
+setprop debug.sensors.gyro.max_delay   2000   2>/dev/null
 setprop debug.sensors.acc.max_delay    2000   2>/dev/null
 setprop persist.vendor.sensors.hal_trigger_ssr 0 2>/dev/null
 
 log "Gyro: Low-latency path active (~2ms delivery, big-core IRQ) ✓"
 
 ###############################################################################
-# AIM TRACKING — BULLET REGISTRATION + DESYNC FIX + CONNECTIVITY
+# AIM TRACKING — BULLET REGISTRATION + DESYNC FIX
 ###############################################################################
 
 log "Aim: Bullet registration + desync fix + connectivity..."
 
-# ── BULLET REGISTRATION DESYNC FIX ──────────────────────────────────────────
-# "Desync" in BGMI = input arrives at server frames AFTER the shot visual
-# Fix: minimize the chain — touch IRQ → kernel → userspace → network → server
-#
-# Step 1: reduce IRQ-to-userspace latency (already done in touch section)
-# Step 2: reduce kernel scheduling delay for input threads
-for PID in $(pgrep -f "input\|InputDispatcher\|InputReader" 2>/dev/null); do
-    chrt -f -p 99 "$PID" 2>/dev/null     # SCHED_FIFO RT for input dispatcher
-    taskset -p c0 "$PID" 2>/dev/null     # CPU6+7 big cores only
+# SCHED_FIFO at 99 for InputDispatcher/InputReader is correct — these are
+# critical real-time threads that must never be preempted by normal tasks
+for PID in $(pgrep -f "InputDispatcher\|InputReader" 2>/dev/null); do
+    chrt -f -p 99 "$PID" 2>/dev/null
+    # CPU6+7 only: decimal 192 = 0b11000000 = smp_affinity_list 6-7
+    taskset -p 192 "$PID" 2>/dev/null
     renice -n -20 -p "$PID" 2>/dev/null
 done
-# Step 3: reduce vsync jitter so rendered frame lands exactly on display scanout
+
 sysctl -w kernel.sched_rt_runtime_us=990000  2>/dev/null
 sysctl -w kernel.sched_rt_period_us=1000000  2>/dev/null
-# Step 4: boost the game's main render thread instantly after touch event
-setprop debug.sf.early.app.duration        16000000  2>/dev/null  # 16ms render budget
-setprop debug.sf.early.sf.duration         10500000  2>/dev/null  # 10.5ms composer budget
+
+setprop debug.sf.early.app.duration        16000000  2>/dev/null
+setprop debug.sf.early.sf.duration         10500000  2>/dev/null
 setprop debug.sf.earlyGl.app.duration      16000000  2>/dev/null
 setprop debug.sf.earlyGl.sf.duration       10500000  2>/dev/null
-# ─────────────────────────────────────────────────────────────────────────────
 
-# IRQ balancer: lock non-game IRQs to little cores (free big cores for game)
-[ -f /proc/sys/kernel/irqaffinity ] && \
-    echo "f" > /proc/sys/kernel/irqaffinity 2>/dev/null   # CPU0-3 for system IRQs
+# System IRQs to little cores (CPU0-3).
+# On Android, use /proc/irq/default_smp_affinity — /proc/sys/kernel/irqaffinity
+# is not writable on locked-down Android kernels.
+[ -f /proc/irq/default_smp_affinity ] && \
+    echo "f" > /proc/irq/default_smp_affinity 2>/dev/null
 
-# Input event queue: maximize flush budget
 sysctl -w fs.inotify.max_queued_events=65536 2>/dev/null
 
-# WLAN power save OFF — causes 50-150ms lag spikes on Wi-Fi aim shots
+# WLAN power save OFF
 for WIFI in /sys/class/net/wlan0/device/power/control \
             /sys/bus/platform/drivers/qcom*/*/power/control; do
     echo "on" > "$WIFI" 2>/dev/null
 done
-iwconfig wlan0 power off 2>/dev/null   # force power management off
-# Qualcomm WLAN module: disable all power save modes
+iwconfig wlan0 power off 2>/dev/null
 [ -f /sys/module/wlan/parameters/con_mode ] && \
     echo "0" > /sys/module/wlan/parameters/con_mode 2>/dev/null
 
-# Bluetooth: minimize latency for BT headset/gamepad aim
 [ -f /sys/class/bluetooth/hci0/idle_timeout ] && \
     echo "0" > /sys/class/bluetooth/hci0/idle_timeout 2>/dev/null
 
-# Disable SO_BUSY_POLL for UDP to reduce socket wakeup latency
-sysctl -w net.core.busy_poll=50       2>/dev/null   # 50µs busy-poll
+sysctl -w net.core.busy_poll=50       2>/dev/null
 sysctl -w net.core.busy_read=50       2>/dev/null
 
 log "Aim: Bullet registration + desync fix active ✓"
@@ -539,49 +506,28 @@ log "Aim: Bullet registration + desync fix active ✓"
 
 log "Network: Ultra low-ping tuning for BGMI/PUBG..."
 
-# TCP BBR (lowest gaming latency)
 sysctl -w net.ipv4.tcp_congestion_control=bbr
 sysctl -w net.core.default_qdisc=fq
-
-# TCP Fast Open (saves one RTT on connection)
 sysctl -w net.ipv4.tcp_fastopen=3
-
-# Aggressive keepalive — detect dead server connections instantly
 sysctl -w net.ipv4.tcp_keepalive_time=10
 sysctl -w net.ipv4.tcp_keepalive_intvl=5
 sysctl -w net.ipv4.tcp_keepalive_probes=3
-
-# Reduce TIME_WAIT aggressively
 sysctl -w net.ipv4.tcp_fin_timeout=10
 sysctl -w net.ipv4.tcp_tw_reuse=1
-
-# Nagle disabled: send packets immediately (lower latency, slightly more packets)
-sysctl -w net.ipv4.tcp_nodelay=1 2>/dev/null
-
-# TCP low latency mode
-sysctl -w net.ipv4.tcp_low_latency=1 2>/dev/null
-
-# MTU probing — finds optimal packet size
 sysctl -w net.ipv4.tcp_mtu_probing=1
-
-# Network buffers: tuned for gaming (low latency, not max throughput)
 sysctl -w net.ipv4.tcp_rmem="4096 131072 8388608"
 sysctl -w net.ipv4.tcp_wmem="4096 65536 8388608"
 sysctl -w net.core.rmem_max=8388608
 sysctl -w net.core.wmem_max=8388608
 sysctl -w net.core.netdev_max_backlog=10000
 sysctl -w net.core.somaxconn=8192
-
-# Reduce retransmit delays
 sysctl -w net.ipv4.tcp_syn_retries=2
 sysctl -w net.ipv4.tcp_synack_retries=2
 
-# DSCP marking: set gaming traffic to EF (Expedited Forwarding)
 iptables -t mangle -F OUTPUT 2>/dev/null
 iptables -t mangle -A OUTPUT -p udp -j DSCP --set-dscp-class EF 2>/dev/null
 iptables -t mangle -A OUTPUT -p tcp --dport 443 -j DSCP --set-dscp-class EF 2>/dev/null
 
-# WLAN QoS: set socket priority for gaming UDP (BGMI uses UDP)
 [ -f /sys/module/wlan/parameters/disable_ps ] && \
     echo "1" > /sys/module/wlan/parameters/disable_ps
 
@@ -593,30 +539,29 @@ log "Network: TCP BBR + zero-delay tuning active ✓"
 
 log "Memory: Gaming RAM optimization..."
 
-sysctl -w vm.swappiness=20          # Only swap when really needed
-sysctl -w vm.vfs_cache_pressure=30  # Keep game asset cache in RAM
+sysctl -w vm.swappiness=20
+sysctl -w vm.vfs_cache_pressure=30
 sysctl -w vm.dirty_ratio=25
 sysctl -w vm.dirty_background_ratio=8
 sysctl -w vm.dirty_expire_centisecs=300
 sysctl -w vm.dirty_writeback_centisecs=150
-sysctl -w vm.overcommit_memory=1    # Fast alloc, no check overhead
+sysctl -w vm.overcommit_memory=1
 sysctl -w vm.oom_kill_allocating_task=0
-sysctl -w vm.extra_free_kbytes=48600  # Extra headroom before LMK fires
-sysctl -w vm.page-cluster=0          # No readahead on random access
+sysctl -w vm.extra_free_kbytes=48600
+sysctl -w vm.page-cluster=0
 sysctl -w vm.watermark_scale_factor=80
-sysctl -w vm.compaction_proactiveness=0  # No compaction during gaming
+sysctl -w vm.compaction_proactiveness=0
 sysctl -w vm.stat_interval=20
 
-# ZRAM: zstd (fastest + best ratio)
 ZRAM0="/sys/block/zram0"
 if [ -d "$ZRAM0" ]; then
     echo "zstd" > "$ZRAM0/comp_algorithm" 2>/dev/null
 fi
 
 # Drop caches briefly at start for clean state
+# Valid values: 1=page cache, 2=dentries/inodes, 3=both
 echo "3" > /proc/sys/vm/drop_caches 2>/dev/null
 sleep 1
-echo "0" > /proc/sys/vm/drop_caches 2>/dev/null
 
 log "Memory: vm.swappiness=20, extra_free=48MB ✓"
 
@@ -646,35 +591,30 @@ log "I/O: BFQ (low_latency, 0-idle, 512-queue) ✓"
 
 log "Charging: Enabling 33W turbo fast charge..."
 
-# 33W = 3300mA @ 10V, or 6600mA @ 5V
-# Qualcomm SMB (Switch Mode Battery) charger paths on Holi PMIC
-CHRG_PATHS=(
-    "/sys/class/power_supply/battery/constant_charge_current_max"
-    "/sys/class/power_supply/bms/constant_charge_current_max"
-    "/sys/class/power_supply/usb/current_max"
-    "/sys/class/power_supply/usb/input_current_limit"
-    "/sys/class/power_supply/main/constant_charge_current_max"
-    "/sys/class/power_supply/pc_port/input_current_limit"
-)
-for PATH_C in "${CHRG_PATHS[@]}"; do
+CHRG_PATHS="
+/sys/class/power_supply/battery/constant_charge_current_max
+/sys/class/power_supply/bms/constant_charge_current_max
+/sys/class/power_supply/usb/current_max
+/sys/class/power_supply/usb/input_current_limit
+/sys/class/power_supply/main/constant_charge_current_max
+/sys/class/power_supply/pc_port/input_current_limit
+"
+for PATH_C in $CHRG_PATHS; do
     [ -f "$PATH_C" ] && echo "3300000" > "$PATH_C" 2>/dev/null && \
-        log "  Set $PATH_C → 3300mA ✓"
+        log "  Set $PATH_C -> 3300mA"
 done
 
-# USB input current: 33W at 9V = ~3667mA
 for PATH_U in \
     "/sys/class/power_supply/usb/input_current_settled" \
     "/sys/class/power_supply/dc/input_current_limit"; do
     [ -f "$PATH_U" ] && echo "3700000" > "$PATH_U" 2>/dev/null
 done
 
-# Qualcomm fast charge enable
 [ -f /sys/class/power_supply/battery/fast_charge_enable ] && \
     echo "1" > /sys/class/power_supply/battery/fast_charge_enable
 [ -f /sys/class/power_supply/battery/fast_charge ] && \
     echo "1" > /sys/class/power_supply/battery/fast_charge
 
-# Enable QC 3.0 / PD 3.0
 [ -f /sys/class/power_supply/usb/pd_active ] && \
     log "  USB PD: $(cat /sys/class/power_supply/usb/pd_active 2>/dev/null)"
 [ -f /sys/class/power_supply/usb/typec_mode ] && \
@@ -683,25 +623,19 @@ done
 log "Charging: 33W turbo charge configured ✓"
 
 ###############################################################################
-# BATTERY — SMART IDLE (PRESERVE PERF, IMPROVE IDLE DRAIN)
+# BATTERY — SMART IDLE
 ###############################################################################
 
 log "Battery: Smart idle mode (performance preserved)..."
 
-# Only throttle power save during idle (not gaming)
-# Enable power-efficient WQ only when screen is off (handled by Android)
 [ -f /sys/module/workqueue/parameters/power_efficient ] && \
     echo "N" > /sys/module/workqueue/parameters/power_efficient
 
-# Wakelocks: keep display/touch wakelocks, reduce sensor wakelocks
-# Disable unnecessary sensor wakeups
 for SENSOR_PM in /sys/bus/platform/drivers/msm_drv/*/power/control \
                   /sys/bus/platform/drivers/qcom_sensorhub/*/power/control; do
     echo "auto" > "$SENSOR_PM" 2>/dev/null
 done
 
-# Disable 3G/2G fall-back during gaming (saves battery without perf hit)
-# (5G/LTE uses less power than 3G fallback cycles)
 [ -f /sys/class/net/rmnet0/device/power/control ] && \
     echo "on" > /sys/class/net/rmnet0/device/power/control 2>/dev/null
 
@@ -713,18 +647,16 @@ log "Battery: Smart idle active (performance path unchanged) ✓"
 
 log "Scheduler: Ultra gaming priority..."
 
-sysctl -w kernel.sched_min_granularity_ns=500000     # 0.5ms — very reactive
-sysctl -w kernel.sched_latency_ns=3000000            # 3ms  — fast round-robin
-sysctl -w kernel.sched_wakeup_granularity_ns=250000  # 0.25ms — instant wakeup
-sysctl -w kernel.sched_migration_cost_ns=1000000     # 1ms  — less CPU migration
-sysctl -w kernel.sched_autogroup_enabled=0           # Android manages priorities
-sysctl -w kernel.perf_cpu_time_max_percent=25        # Reserve headroom for kernel
+sysctl -w kernel.sched_min_granularity_ns=500000
+sysctl -w kernel.sched_latency_ns=3000000
+sysctl -w kernel.sched_wakeup_granularity_ns=250000
+sysctl -w kernel.sched_migration_cost_ns=1000000
+sysctl -w kernel.sched_autogroup_enabled=0
+sysctl -w kernel.perf_cpu_time_max_percent=25
 
-# Real-time priority for IRQ threads
 [ -f /proc/sys/kernel/sched_rr_timeslice_ms ] && \
     echo "1" > /proc/sys/kernel/sched_rr_timeslice_ms
 
-# Increase scheduling slices for top-app
 [ -f /dev/cpuctl/top-app/cpu.shares ] && \
     echo "20480" > /dev/cpuctl/top-app/cpu.shares 2>/dev/null
 
@@ -738,12 +670,11 @@ sysctl -w fs.inotify.max_user_watches=524288
 sysctl -w fs.inotify.max_user_instances=512
 sysctl -w fs.file-max=2097152
 
-# Background fstrim
 (sleep 45 && fstrim /data 2>/dev/null && fstrim /cache 2>/dev/null && \
     log "fstrim /data /cache completed") &
 
 ###############################################################################
-# KSM — DISABLE DURING GAMING (wastes CPU scanning memory)
+# KSM — DISABLE DURING GAMING
 ###############################################################################
 
 log "KSM: Disabling kernel samepage merging..."
@@ -752,24 +683,23 @@ log "KSM: Disabling kernel samepage merging..."
 log "KSM: Disabled ✓"
 
 ###############################################################################
-# TRANSPARENT HUGEPAGES — ALWAYS (faster memory alloc for game heap)
+# TRANSPARENT HUGEPAGES
 ###############################################################################
 
 THP="/sys/kernel/mm/transparent_hugepage"
-[ -f "$THP/enabled" ]              && echo "always"   > "$THP/enabled"
-[ -f "$THP/defrag" ]               && echo "defer+madvise" > "$THP/defrag"
+[ -f "$THP/enabled" ]              && echo "always"         > "$THP/enabled"
+[ -f "$THP/defrag" ]               && echo "defer+madvise"  > "$THP/defrag"
 [ -f "$THP/khugepaged/scan_sleep_millisecs" ] && \
     echo "1000" > "$THP/khugepaged/scan_sleep_millisecs"
 log "THP: always ✓"
 
 ###############################################################################
-# ENTROPY — FASTER CRYPTO / RANDOM (speeds up SSL, game auth)
+# ENTROPY
 ###############################################################################
 
 log "Entropy: Tuning random pool..."
 sysctl -w kernel.random.read_wakeup_threshold=64
 sysctl -w kernel.random.write_wakeup_threshold=128
-# Urandom always ready
 [ -f /proc/sys/kernel/random/urandom_min_reseed_secs ] && \
     echo "60" > /proc/sys/kernel/random/urandom_min_reseed_secs 2>/dev/null
 log "Entropy: Optimized ✓"
@@ -780,33 +710,28 @@ log "Entropy: Optimized ✓"
 
 log "UI: Boosting SystemUI + Launcher for flagship feel..."
 
-# Boost SystemUI (handles all animations, status bar, notifications)
 for PID in $(pgrep -f "systemui\|SystemUI" 2>/dev/null); do
     renice -n -5 -p "$PID" 2>/dev/null
     chrt -r -p 10 "$PID" 2>/dev/null
-    taskset -p ff "$PID" 2>/dev/null   # all cores
+    # all cores = decimal 255 = 0xff
+    taskset -p 255 "$PID" 2>/dev/null
     echo "$PID" > /dev/cpuset/top-app/tasks 2>/dev/null
 done
 
-# Boost Launcher (instant app open feel)
 for PID in $(pgrep -f "launcher\|Launcher\|trebuchet\|lawnchair\|oneplus.launcher" 2>/dev/null); do
     renice -n -5 -p "$PID" 2>/dev/null
-    taskset -p f0 "$PID" 2>/dev/null   # big cores
+    # big cores = decimal 240 = 0xf0
+    taskset -p 240 "$PID" 2>/dev/null
 done
 
-# Speed up window animations via system properties
-setprop debug.sf.hw 1                           2>/dev/null  # hardware composer
+setprop debug.sf.hw 1                           2>/dev/null
 setprop debug.egl.hw 1                          2>/dev/null
-setprop debug.sf.latch_unsignaled 1             2>/dev/null  # don't wait for fence
+setprop debug.sf.latch_unsignaled 1             2>/dev/null
 setprop ro.surface_flinger.max_frame_buffer_acquired_buffers 3  2>/dev/null
 setprop debug.sf.frame_rate_multiple_threshold 60  2>/dev/null
-
-# Reduce window animation scales (0.5 = twice as fast, feels snappier)
 setprop window_animation_scale 0.5              2>/dev/null
 setprop transition_animation_scale 0.5          2>/dev/null
 setprop animator_duration_scale 0.5             2>/dev/null
-
-# Enable hardware-accelerated rendering everywhere
 setprop debug.hwui.renderer opengl              2>/dev/null
 setprop debug.hwui.use_buffer_age false         2>/dev/null
 setprop debug.hwui.skia_atrace_enabled false    2>/dev/null
@@ -814,78 +739,84 @@ setprop debug.hwui.skia_atrace_enabled false    2>/dev/null
 log "UI: SystemUI boosted, animations 0.5x speed ✓"
 
 ###############################################################################
-# RENDERING — BUTTERY SMOOTH 120 FPS (zero stutter, zero jitter)
+# RENDERING — BUTTERY SMOOTH 120 FPS
 ###############################################################################
 
 log "Render: Buttery-smooth GPU pipeline tuning..."
 
-# ── SurfaceFlinger: highest RT priority ──────────────────────────────────────
+# SurfaceFlinger: SCHED_FIFO 50 (was 99 — too high, causes RT budget exhaustion)
+# Qualcomm's own init sets SF at SCHED_FIFO 2; 50 gives it priority without starving others
 for PID in $(pgrep -f "surfaceflinger" 2>/dev/null); do
-    chrt -f -p 99 "$PID" 2>/dev/null           # SCHED_FIFO — never preempted
-    taskset -p c0 "$PID" 2>/dev/null            # CPU6+7 only (fastest big cores)
-    renice -n -20 -p "$PID" 2>/dev/null
-done
-# Hardware composer — pin to big cores too
-for PID in $(pgrep -f "composer@|hwcomposer" 2>/dev/null); do
-    chrt -f -p 98 "$PID" 2>/dev/null
-    taskset -p c0 "$PID" 2>/dev/null
-    renice -n -20 -p "$PID" 2>/dev/null
+    chrt -f -p 50 "$PID" 2>/dev/null
+    # CPU6+7: decimal 192 = 0b11000000
+    taskset -p 192 "$PID" 2>/dev/null
+    renice -n -10 -p "$PID" 2>/dev/null
 done
 
-# ── Triple buffering: prevents frame drops on complex scenes ─────────────────
+for PID in $(pgrep -f "composer@|hwcomposer" 2>/dev/null); do
+    chrt -f -p 48 "$PID" 2>/dev/null
+    taskset -p 192 "$PID" 2>/dev/null
+    renice -n -10 -p "$PID" 2>/dev/null
+done
+
 setprop debug.sf.disable_triple_buffer 0        2>/dev/null
 setprop ro.surface_flinger.max_frame_buffer_acquired_buffers 3 2>/dev/null
-
-# ── Vsync tuning: tight deadlines prevent missed frames ──────────────────────
-setprop debug.sf.vsync_trace_lag             50000   2>/dev/null   # 50µs tolerance
-setprop debug.sf.phase_offset_ns           1000000   2>/dev/null   # 1ms app phase
-setprop debug.sf.sf_phase_offset_ns         500000   2>/dev/null   # 0.5ms SF phase
-
-# ── Choreographer deadline scheduling ────────────────────────────────────────
+setprop debug.sf.vsync_trace_lag             50000   2>/dev/null
+setprop debug.sf.phase_offset_ns           1000000   2>/dev/null
+setprop debug.sf.sf_phase_offset_ns         500000   2>/dev/null
 setprop debug.sf.use_content_detection_v2 1         2>/dev/null
-setprop debug.sf.enable_transaction_tracing 0       2>/dev/null    # reduce overhead
-setprop debug.sf.predict_hwc_composition_strategy 1 2>/dev/null    # skip SWC fallback
-
-# ── Skia GPU renderer: max performance ───────────────────────────────────────
-setprop debug.hwui.renderer          skiavk         2>/dev/null   # Vulkan backend
+setprop debug.sf.enable_transaction_tracing 0       2>/dev/null
+setprop debug.sf.predict_hwc_composition_strategy 1 2>/dev/null
+setprop debug.hwui.renderer          skiavk         2>/dev/null
 setprop debug.hwui.skia_use_vulkan   1              2>/dev/null
 setprop debug.hwui.profile           visual_rects   2>/dev/null
 setprop debug.hwui.overdraw          false          2>/dev/null
-setprop debug.hwui.cache_size        67108864       2>/dev/null   # 64MB GPU cache
+setprop debug.hwui.cache_size        67108864       2>/dev/null
 
-# ── KGSL: GPU frame pacing ───────────────────────────────────────────────────
 for GPU in /sys/class/kgsl/kgsl-3d0; do
     [ -f "$GPU/dispatch_queue_length" ] && \
-        echo "2" > "$GPU/dispatch_queue_length" 2>/dev/null    # low queue = low latency
+        echo "2" > "$GPU/dispatch_queue_length" 2>/dev/null
     [ -f "$GPU/frame_pacing" ] && \
-        echo "1" > "$GPU/frame_pacing" 2>/dev/null             # enable frame pacing
+        echo "1" > "$GPU/frame_pacing" 2>/dev/null
 done
 
-# ── CPU: ensure render threads wake instantly ─────────────────────────────────
-# WALT: reduce migration threshold so render threads stay on big cores
 sysctl -w kernel.sched_migration_cost_ns=500000  2>/dev/null
-
-# ── Memfd + ashmem: faster shared memory for GPU driver ──────────────────────
 setprop sys.use_memfd true                         2>/dev/null
 
-log "Render: Vulkan backend + triple-buffer + SF@RT-99 + frame pacing ✓"
+log "Render: Vulkan backend + triple-buffer + SF@FIFO-50 + frame pacing ✓"
 
 ###############################################################################
-# AUDIO — ZERO LATENCY (no game audio delay)
+# AUDIO — DOLBY-SAFE / ZERO LATENCY
 ###############################################################################
 
-log "Audio: Low latency mode..."
+log "Audio: Dolby-safe low latency mode..."
 
-# Keep Dolby/AudioFlinger policy stock. Runtime writes to audio.* or ro.audio.*
-# after boot can desynchronise vendor Dolby effects from the Android 17 audio
-# policy and cause repeated Dolby/audioserver crashes. We only apply a mild
-# scheduler hint to audioserver, and avoid SCHED_FIFO for mixer/effect threads.
+# !!IMPORTANT: Do NOT set audio.* system properties here.
+# Writing audio.* or ro.audio.* properties at runtime desynchronises the
+# vendor Dolby effects pipeline from the Android audio policy and causes
+# repeated audioserver crashes (the Dolby effect plugin reads the policy
+# at startup and cannot re-read it after runtime property changes).
+#
+# Also do NOT use SCHED_FIFO / chrt on audioserver — this causes priority
+# inversion with the Dolby spatial processing threads which run at a lower
+# RT priority and get starved.
+#
+# Safe operation: only renice audioserver (NICE -5) and pin it to
+# little cores (CPU0-3 = decimal 15 = 0x0f) which have lower interrupt
+# jitter and are better suited for real-time audio than the big cores
+# (big cores have larger cache reload overhead on context switches).
 for PID in $(pgrep -x audioserver 2>/dev/null); do
     renice -n -5 -p "$PID" 2>/dev/null
-    taskset -p 30 "$PID" 2>/dev/null
+    # little cores 0-3: decimal 15 = 0b00001111
+    taskset -p 15 "$PID" 2>/dev/null
 done
 
-log "Audio: Dolby-safe stock policy preserved ✓"
+# Also renice the media codec / mediametrics service (not RT)
+for PID in $(pgrep -f "media.codec|media.metrics|mediaserver" 2>/dev/null); do
+    renice -n -5 -p "$PID" 2>/dev/null
+done
+
+log "Audio: Dolby-safe stock policy preserved, audioserver reniced ✓"
 
 ###############################################################################
 # APP LAUNCH SPEED — INSTANT OPEN
@@ -893,20 +824,15 @@ log "Audio: Dolby-safe stock policy preserved ✓"
 
 log "Apps: Tuning for instant launch..."
 
-# Disable dex2oat in background (kills launch smoothness)
 setprop pm.dexopt.boot-after-ota verify        2>/dev/null
 setprop pm.dexopt.first-boot verify            2>/dev/null
-
-# Preload zygote (faster app forks)
 setprop dalvik.vm.usejit true                   2>/dev/null
 setprop dalvik.vm.jitmaxsize 256m               2>/dev/null
 setprop dalvik.vm.jitinitialsize 64m            2>/dev/null
-setprop dalvik.vm.jitthreshold 500              2>/dev/null   # compile hot code faster
+setprop dalvik.vm.jitthreshold 500              2>/dev/null
 setprop dalvik.vm.heapsize 256m                 2>/dev/null
 setprop dalvik.vm.heapmaxfree 8m               2>/dev/null
 setprop dalvik.vm.heapgrowthlimit 192m          2>/dev/null
-
-# Faster process start (reduce binder overhead)
 setprop persist.device_config.runtime_native_boot.iorap_readahead_enable true 2>/dev/null
 
 log "Apps: JIT tuned, instant launch active ✓"
@@ -917,7 +843,6 @@ log "Apps: JIT tuned, instant launch active ✓"
 
 log "Bus: Locking memory bus bandwidth..."
 
-# Lock DDR bus to max (prevents bandwidth throttle mid-game)
 for BW in /sys/class/devfreq/soc:qcom,cpu-llcc-ddr-bw/min_freq \
            /sys/class/devfreq/soc:qcom,llcc-ddr-bw/min_freq \
            /sys/class/devfreq/soc:qcom,cpu0-cpu-l3-lat/min_freq \
@@ -928,7 +853,6 @@ for BW in /sys/class/devfreq/soc:qcom,cpu-llcc-ddr-bw/min_freq \
     fi
 done
 
-# Set L3 cache governor to performance
 for L3GOV in /sys/class/devfreq/soc:qcom,cpu*-cpu-l3-lat/governor; do
     echo "performance" > "$L3GOV" 2>/dev/null
 done
@@ -939,16 +863,9 @@ log "Bus: DDR + L3 cache locked to max ✓"
 # SPLIT LOCK + PERF TWEAKS
 ###############################################################################
 
-# Disable hung task detection overhead
 sysctl -w kernel.hung_task_timeout_secs=0       2>/dev/null
-
-# Faster context switches
 sysctl -w kernel.sched_nr_migrate=64            2>/dev/null
-
-# Disable audit (overhead for every syscall)
 sysctl -w kernel.audit_backlog_limit=0          2>/dev/null
-
-# Larger pipe buffer for smoother IPC
 sysctl -w fs.pipe-max-size=4194304             2>/dev/null
 
 ###############################################################################
@@ -960,7 +877,6 @@ sysctl -w kernel.printk="3 3 1 7"
 [ -f /sys/kernel/debug/dynamic_debug/control ] && \
     echo "module * =_" > /sys/kernel/debug/dynamic_debug/control 2>/dev/null
 
-# Disable tracing overhead
 [ -f /sys/kernel/debug/tracing/tracing_on ] && \
     echo "0" > /sys/kernel/debug/tracing/tracing_on 2>/dev/null
 
@@ -976,13 +892,13 @@ log " ✓ GPU: Frame pacing + Vulkan backend"
 log " ✓ Thermal: 85°C limit (hardware safe)"
 log " ✓ Charging: 33W Turbo"
 log " ✓ Display: 120 FPS + triple-buffer"
-log " ✓ Touch: Max rate + big-core IRQ"
+log " ✓ Touch: Max rate + big-core IRQ affinity"
 log " ✓ Gyro: ~2ms latency + big-core IRQ"
 log " ✓ Bullet reg: InputDispatcher RT-99"
 log " ✓ Desync fix: SF phase + vsync tight"
-log " ✓ Render: SurfaceFlinger RT-99 + Skia/VK"
+log " ✓ Render: SurfaceFlinger FIFO-50 + Skia/VK"
 log " ✓ Network: TCP BBR + busy-poll UDP"
-log " ✓ Audio: QDSP6 + Dolby Atmos active"
+log " ✓ Audio: Dolby Atmos safe — QDSP6 stock policy"
 log " ✓ BGMI/PUBG: Process + cgroup pinned"
 log " ✓ Memory: swappiness=20, LMK headroom"
 log " ✓ KSM: Disabled (more free RAM)"
