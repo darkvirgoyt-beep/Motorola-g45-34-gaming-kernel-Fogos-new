@@ -1861,7 +1861,9 @@ CONFIG_HDCP_QSEECOM=y
 # CONFIG_AW862X_HAPTIC is not set
 CONFIG_AW96XX_POWER_SUPPLY_ONLINE=y
 CONFIG_AW96XX_SAR=y
-CONFIG_LDO_VIBRATOR_MMI=y
+# CONFIG_LDO_VIBRATOR_MMI is not set
+# mot_actuator_on_vibrate_{start,stop} are exported by techpack/camera which
+# ships as vendor_dlkm .ko (not in boot Image). Disable to avoid link error.
 CONFIG_MMI_SYS_TEMP=y
 # CONFIG_MISC_BU520XX_PEN is not set
 CONFIG_SARSENSOR_SX937X=y
@@ -3327,7 +3329,9 @@ CONFIG_CEC_PLATFORM_DRIVERS=y
 CONFIG_MSM_GLOBAL_SYNX=y
 CONFIG_MSM_CVP=y
 # CONFIG_MSM_NPU is not set
-CONFIG_CAMERA_CCI_INTF=y
+# CONFIG_CAMERA_CCI_INTF is not set
+# cam_cci_get_subdev is exported by techpack/camera (vendor_dlkm .ko).
+# Disable to avoid link error when techpack/camera is excluded from boot Image.
 
 #
 # Supported MMC/SDIO adapters

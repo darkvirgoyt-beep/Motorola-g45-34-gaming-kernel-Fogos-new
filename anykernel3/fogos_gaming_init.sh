@@ -160,8 +160,10 @@ optimize_game() {
     local PID=$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)
     if [ -n "$PID" ]; then
         fog_pin_big_cores "$PID" -20
-        # Use SCHED_RR at 10 (not FIFO 99) to avoid RT budget exhaustion
-        chrt -r -p 10 "$PID" 2>/dev/null
+        # Game processes get SCHED_FIFO 99 — they are the foreground workload
+        # and must never be preempted by normal/background tasks
+        chrt -f -p 99 "$PID" 2>/dev/null
+        taskset -p f0 "$PID" 2>/dev/null
         fog_write "$PID" /dev/stune/top-app/tasks
         log "Optimized: $PKGNAME (PID $PID)"
     fi
