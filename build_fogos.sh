@@ -338,6 +338,13 @@ build_kernel() {
     log_success "Extreme gaming config merged."
   fi
 
+  # Step 2c: Verify the controller endpoint is built into the release kernel.
+  # PulseControl and the trusted profile bridge both depend on this node.
+  if ! grep -q '^CONFIG_FOGOS_PROFILE=y$' "${OUT_DIR}/.config"; then
+    log_error "CONFIG_FOGOS_PROFILE=y is missing; refusing to build a controller-disconnected kernel."
+  fi
+  log_success "FogOS controller endpoint enabled: /dev/fogos_profile"
+
   # Step 3: Compile
   log_info "Compiling kernel (${JOBS} jobs)..."
   make "${MAKE_FLAGS[@]}" Image Image.gz Image.lz4 2>&1 || \
