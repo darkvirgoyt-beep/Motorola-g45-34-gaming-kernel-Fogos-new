@@ -1,3 +1,5 @@
+#!/system/bin/sh
+# shellcheck disable=SC2148,SC2289
 ###############################################################################
 # FogOS Extreme Gaming Kernel — AnyKernel3 Installer
 # Device  : Motorola G45 / G34 (SM6375 / Holi)

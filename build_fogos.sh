@@ -88,7 +88,7 @@ find_kernel_image() {
       return 0
     fi
   done
-  return 0
+  return 1
 }
 
 ###############################################################################
@@ -362,9 +362,10 @@ package_zip() {
   log_info "Packaging AnyKernel3 ZIP..."
   mkdir -p "${ZIP_DIR}"
 
-  # Copy kernel image into anykernel dir
+  # Copy kernel image into anykernel dir; never package a stale or empty ZIP.
   KERNEL_IMG="$(find_kernel_image)"
-  [ -n "$KERNEL_IMG" ] && cp "$KERNEL_IMG" "${ANYKERNEL_DIR}/"
+  [ -n "$KERNEL_IMG" ] || log_error "Kernel image not found; refusing to package ZIP."
+  cp "$KERNEL_IMG" "${ANYKERNEL_DIR}/"
 
   # Copy DTBs
   mkdir -p "${ANYKERNEL_DIR}/dtbs"
@@ -378,12 +379,16 @@ package_zip() {
 
   # Build ZIP
   cd "${ANYKERNEL_DIR}"
-  zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
+  if ! zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
     anykernel.sh fogos_lib.sh fogos_gaming_init.sh fogos_game_detector.sh magisk META-INF \
-    dtbs Image* tools 2>/dev/null || \
-  zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . --exclude="*.log" 2>/dev/null
+    dtbs Image* tools 2>/dev/null; then
+    rm -f "${ZIP_DIR}/${ZIP_NAME}"
+    cd "${KERNEL_DIR}"
+    log_error "AnyKernel3 ZIP creation failed."
+  fi
 
   cd "${KERNEL_DIR}"
+  [ -s "${ZIP_DIR}/${ZIP_NAME}" ] || log_error "AnyKernel3 ZIP is missing or empty."
   log_success "ZIP: ${ZIP_DIR}/${ZIP_NAME}"
 }
 

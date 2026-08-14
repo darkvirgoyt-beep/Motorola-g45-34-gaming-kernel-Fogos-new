@@ -95,7 +95,17 @@ teardown() {
       *--print-prog-name=clang*) echo "clang" ;;
       *--print-resource-dir*)   echo "" ;;
     esac'
+  # Hide host cross-compilers so this test exercises the documented LLVM-only
+  # fallback even when the developer machine has a kernel cross-toolchain.
+  local saved_path="$PATH"
+  for helper in bash basename dirname grep head ls sed; do
+    ln -sf "$(command -v "$helper")" "$MOCK_BIN/$helper"
+  done
+  PATH="$MOCK_BIN"
+  export PATH
   run setup_toolchain
+  PATH="$saved_path"
+  export PATH
   [ "$status" -eq 0 ]
   [[ "$output" == *"Toolchain ready."* ]]
   [[ "$output" == *"none (LLVM-only mode)"* ]]
