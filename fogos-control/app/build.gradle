@@ -3,6 +3,12 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def releaseStoreFile = System.getenv('FOGOS_RELEASE_STORE_FILE')
+def releaseStorePassword = System.getenv('FOGOS_RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = System.getenv('FOGOS_RELEASE_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('FOGOS_RELEASE_KEY_PASSWORD')
+def hasReleaseSigning = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword].every { it != null && !it.isBlank() }
+
 android {
     namespace 'com.fogos.control'
     compileSdk 35
@@ -20,7 +26,28 @@ android {
         applicationId 'com.fogos.control'
         minSdk 29
         targetSdk 35
-        versionCode 1
-        versionName '1.0'
+        versionCode 5
+        versionName '1.2.2'
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
     }
 }

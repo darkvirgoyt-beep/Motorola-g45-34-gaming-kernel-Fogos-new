@@ -1,5 +1,8 @@
 # FogOS Control
 
+**Canonical controller source:** [FogOS PulseControl](https://github.com/darkvirgoyt-beep/FogOS-PulseControl)
+**Kernel integration:** [Motorola G45/G34 FogOS Gaming Kernel](https://github.com/darkvirgoyt-beep/Motorola-g45-34-gaming-kernel-Fogos-new/tree/sixteen-qpr2)
+
 FogOS Control is a Kotlin Android companion application for the FogOS kernel. It changes profiles without calling `su`, launching a shell, or writing arbitrary kernel paths. The app reads and writes only `/dev/fogos_profile`, which accepts `balanced`, `performance`, and `extreme_gaming`.
 
 ## Important deployment requirement

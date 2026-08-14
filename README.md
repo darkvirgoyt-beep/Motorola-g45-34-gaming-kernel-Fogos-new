@@ -10,6 +10,9 @@
 **Base:** Linux 5.4.302 · Android 16  
 **Version:** v2.0 Ultra
 
+**Controller app:** [FogOS PulseControl](https://github.com/darkvirgoyt-beep/FogOS-PulseControl)
+**Embedded controller source:** [`fogos-control/app`](https://github.com/darkvirgoyt-beep/Motorola-g45-34-gaming-kernel-Fogos-new/tree/sixteen-qpr2/fogos-control/app)
+
 ---
 
 [![VirgoYT](https://img.shields.io/badge/Developer-VirgoYT707-gold?style=for-the-badge&logo=youtube)](https://youtube.com/@VirgoYT707)
