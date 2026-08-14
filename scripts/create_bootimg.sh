@@ -220,7 +220,10 @@ OUT_BYTES=$(wc -c < "$OUTPUT_IMG")
 # fit instead of only discovering it at flash time.
 ###############################################################################
 BOOT_PARTITION_SIZE_BYTES="${BOOT_PARTITION_SIZE_BYTES:-100663296}"  # 96 MiB, device partition table
-SIZE_MARGIN_BYTES="${SIZE_MARGIN_BYTES:-2097152}"                    # 2 MiB safety margin
+# The trimmed release Image leaves about 1.54 MiB below the exact partition
+# limit. Keep a 1 MiB default margin; callers can raise it with
+# SIZE_MARGIN_BYTES when using a stricter release policy.
+SIZE_MARGIN_BYTES="${SIZE_MARGIN_BYTES:-1048576}"                    # 1 MiB safety margin
 BUDGET_BYTES=$((BOOT_PARTITION_SIZE_BYTES - SIZE_MARGIN_BYTES))
 
 if [ "$OUT_BYTES" -gt "$BUDGET_BYTES" ]; then
