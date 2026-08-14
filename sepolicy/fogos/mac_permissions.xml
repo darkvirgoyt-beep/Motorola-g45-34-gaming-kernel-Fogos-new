@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merge the signer entry into the ROM's mac_permissions.xml. -->
+<policy>
+    <signer signature="@PLATFORM">
+        <package name="com.fogos.control">
+            <seinfo value="fogos_app" />
+        </package>
+    </signer>
+</policy>

@@ -372,10 +372,14 @@ package_zip() {
        \( -name "*holi*" -o -name "*sm6375*" -o -name "*moto*" \) \
        -exec cp {} "${ANYKERNEL_DIR}/dtbs/" \; 2>/dev/null || true
 
+  # Include the root-side profile bridge used by the non-root Kotlin app.
+  rm -rf "${ANYKERNEL_DIR}/magisk"
+  cp -a "${KERNEL_DIR}/magisk" "${ANYKERNEL_DIR}/magisk"
+
   # Build ZIP
   cd "${ANYKERNEL_DIR}"
   zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
-    anykernel.sh fogos_lib.sh fogos_gaming_init.sh fogos_game_detector.sh META-INF \
+    anykernel.sh fogos_lib.sh fogos_gaming_init.sh fogos_game_detector.sh magisk META-INF \
     dtbs Image* tools 2>/dev/null || \
   zip -r9 "${ZIP_DIR}/${ZIP_NAME}" . --exclude="*.log" 2>/dev/null
 

@@ -14,14 +14,33 @@ MODDIR="${0%/*}"
 # (avoids racing with audioserver / vendor services during init)
 sleep 20
 
-# Apply initial default profile (CPU/GPU/thermal only — no audio props)
-sh "$MODDIR/profile_manager.sh" "$FOGOS_DEFAULT_PROFILE"
-fogos_log "service.sh: initial profile=$FOGOS_DEFAULT_PROFILE applied"
+# Restore the last validated profile, or use the configured default.
+initial_profile="$(cat "$FOGOS_PROFILE_FILE" 2>/dev/null | tr -d '[:space:]')"
+case "$initial_profile" in
+    balanced|performance|extreme_gaming) ;;
+    *) initial_profile="$FOGOS_DEFAULT_PROFILE" ;;
+esac
+sh "$MODDIR/profile_manager.sh" "$initial_profile"
+fogos_log "service.sh: initial profile=$initial_profile applied"
 
 # Background game detection loop
 (
     last_state=""
     while true; do
+        # The signed FogOS app writes only a validated profile name to the
+        # kernel device. This service, already running in the root module,
+        # performs the actual sysfs/sysctl writes.
+        requested="$(cat "$FOGOS_PROFILE_DEVICE" 2>/dev/null | tr -d '[:space:]')"
+        current="$(cat "$FOGOS_PROFILE_FILE" 2>/dev/null | tr -d '[:space:]')"
+        case "$requested" in
+            balanced|performance|extreme_gaming)
+                if [ "$requested" != "$current" ]; then
+                    sh "$MODDIR/profile_manager.sh" "$requested"
+                    fogos_log "app request: switched to $requested"
+                fi
+                ;;
+        esac
+
         # Get the foreground package name
         fg="$(dumpsys activity activities 2>/dev/null \
               | sed -n 's/.*topResumedActivity.* \([^/ ]*\)\/.*/\1/p' \

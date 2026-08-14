@@ -113,15 +113,26 @@ author=VirgoYT707
 description=FogOS gaming init: CPU/GPU/audio/network tuned for BGMI
 EOF
 
-    # service.sh: runs in Magisk late_start service context (post-boot)
-    cat > "$MAGISK_MODULE/service.sh" << 'EOF'
+    # Install the profile request watcher and manager. The Kotlin app is
+    # non-root; this late_start service is the trusted root-side applier.
+    if [ -d "$INSTALLER/magisk/fogos" ]; then
+        for fogos_file in config.sh logger.sh profile_manager.sh service.sh; do
+            cp -f "$INSTALLER/magisk/fogos/$fogos_file" "$MAGISK_MODULE/$fogos_file" 2>/dev/null || true
+        done
+        chmod 755 "$MAGISK_MODULE/service.sh" "$MAGISK_MODULE/profile_manager.sh" 2>/dev/null || true
+        chmod 644 "$MAGISK_MODULE/config.sh" "$MAGISK_MODULE/logger.sh" 2>/dev/null || true
+        ui_print "  + Non-root app profile bridge installed"
+    else
+        # Compatibility fallback for older packages that do not carry the
+        # profile bridge; preserve the original gaming init behavior.
+        cat > "$MAGISK_MODULE/service.sh" << 'EOF'
 #!/system/bin/sh
-# FogOS Magisk service — boot gaming init after system is ready
 FOGOS_DIR=/data/adb/fogos
 [ -x "$FOGOS_DIR/fogos_gaming_init.sh" ] && \
     sh "$FOGOS_DIR/fogos_gaming_init.sh" &
 EOF
-    chmod 755 "$MAGISK_MODULE/service.sh" 2>/dev/null;
+        chmod 755 "$MAGISK_MODULE/service.sh" 2>/dev/null;
+    fi
 
     # skip_mount: we don't mount anything (systemless = no /system changes)
     touch "$MAGISK_MODULE/skip_mount" 2>/dev/null;
@@ -138,8 +149,9 @@ ui_print "    * PUBG Mobile (com.tencent.ig)";
 ui_print "    * Free Fire  (com.dts.freefireth)";
 ui_print " ";
 ui_print "  Flash complete! Reboot when ready.";
-ui_print "  Logs: /data/local/fogos_boot.log";
-ui_print "  Profile: echo extreme_gaming > /data/local/fogos_profile";
+ui_print "  Logs: /data/local/fogos/fogos.log";
+ui_print "  App endpoint: /dev/fogos_profile";
+ui_print "  Legacy shell: echo extreme_gaming > /data/local/fogos_profile";
 ui_print " ";
 
 ## end setup

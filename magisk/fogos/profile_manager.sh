@@ -9,6 +9,14 @@ profile_current() {
   p="$(cat "$FOGOS_PROFILE_FILE" 2>/dev/null | tr -d '[:space:]')"
   case "$p" in balanced|performance|extreme_gaming) echo "$p";; *) echo "$FOGOS_DEFAULT_PROFILE";; esac
 }
+profile_device_current() {
+  [ -r "$FOGOS_PROFILE_DEVICE" ] || return 1
+  p="$(cat "$FOGOS_PROFILE_DEVICE" 2>/dev/null | tr -d '[:space:]')"
+  case "$p" in balanced|performance|extreme_gaming) echo "$p";; *) return 1;; esac
+}
+sync_profile_device() {
+  [ -e "$FOGOS_PROFILE_DEVICE" ] && printf '%s\n' "$1" > "$FOGOS_PROFILE_DEVICE" 2>/dev/null
+}
 set_cpu_policy() {
   gov="$1"; min_pct="$2"
   for pol in /sys/devices/system/cpu/cpufreq/policy*; do
@@ -75,6 +83,7 @@ apply_profile() {
   esac
   set_thermal_safe
   echo "$p" > "$FOGOS_PROFILE_FILE" 2>/dev/null
+  sync_profile_device "$p"
   fogos_log "applied profile=$p"
 }
 [ "${FOGOS_LIB_ONLY:-0}" = 1 ] || apply_profile "$1"

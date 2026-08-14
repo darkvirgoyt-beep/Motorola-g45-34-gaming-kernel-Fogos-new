@@ -65,6 +65,7 @@ qseecom-mod-$(CONFIG_COMPAT)	+= compat_qseecom.o
 obj-$(CONFIG_PROFILER)			+= profiler.o
 obj-$(CONFIG_WIGIG_SENSING_SPI)	+= wigig_sensing.o
 obj-$(CONFIG_HISI_HIKEY_USB)	+= hisi_hikey_usb.o
+obj-$(CONFIG_FOGOS_PROFILE)	+= fogos_profile.o
 
 obj-y				+= awinic/
 obj-$(CONFIG_LDO_VIBRATOR_MMI)	+= ldo_vibrator_mmi/

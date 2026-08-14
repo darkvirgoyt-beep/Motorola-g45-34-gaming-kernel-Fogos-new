@@ -142,8 +142,10 @@ apply_profile_extreme_gaming() {
 }
 
 # Load shared FogOS runtime helpers (CPU/GPU/boost/game-list utilities).
-# Use POSIX-compatible $0 for script directory discovery.
-_SCRIPT_DIR="$(dirname "$0")"
+# Resolve the source file when running under Bash tests, and fall back to
+# POSIX $0 when executed by Android /system/bin/sh.
+_SCRIPT_FILE="${BASH_SOURCE:-$0}"
+_SCRIPT_DIR="$(dirname "$_SCRIPT_FILE")"
 for FOG_LIB in \
     "${FOG_LIB:-}" \
     "$_SCRIPT_DIR/fogos_lib.sh" \
