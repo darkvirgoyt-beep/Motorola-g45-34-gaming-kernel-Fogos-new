@@ -2,6 +2,22 @@
 
 ---
 
+## v2.1 — AVB Preflash Fix (Android 17 / Evolution X)
+**Developer:** Prince (VirgoYT707)  
+**Device:** Motorola G45 / G34 (SM6375 / Holi)  
+**Base:** Linux 5.4.302 · Android 17 (Evolution X)
+
+### Fixed in v2.1
+| Area | Change |
+|------|--------|
+| Flashing | **Fixed "Preflash validation failed"** — root cause was invalid AVB hash tree |
+| AVB | Stock 41MB hash tree (computed over stock kernel) invalidated after kernel swap |
+| AVB | Replaced with minimal 256-byte vbmeta with `VERIFICATION_DISABLED` flag |
+| Image Size | Reduced from ~96MB to ~55MB (no more 41MB hash tree bloat) |
+| Compat | Now works on Android 17 (Evolution X) — same boot partition layout |
+
+---
+
 ## v2.0 — Ultra Gaming Mode
 **Developer:** Prince (VirgoYT707)  
 **Device:** Motorola G45 (SM6375 / Holi)  
