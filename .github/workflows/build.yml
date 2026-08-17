@@ -6,7 +6,7 @@ name: FogOS Kernel — Build & Boot Image
 #
 # Developer : Prince · VirgoYT707
 # Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
-# Base      : Linux 5.4.302 · Android 16
+# Base      : Linux 5.4.302 · Android 17 (Evolution X)
 ###############################################################################
 
 on:

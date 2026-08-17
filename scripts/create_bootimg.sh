@@ -129,25 +129,29 @@ PYEOF
 [ -f "$OUTPUT_IMG" ] || fail "Output file not created — mkbootimg may have failed silently"
 
 ###############################################################################
-# Preserve AVB2.0 block from stock image
+# AVB2.0 Block — Minimal vbmeta with allow_verification_disabled
 #
 # Motorola / Holi boot images have a 40+ MB AVB2.0 hash tree + vbmeta
-# descriptor appended after the ramdisk.  mkbootimg.py does not reconstruct
-# this block — so without this step the output image is ~75 MB while stock is
-# 96 MB, and some bootloaders refuse to load the truncated image even with
-# --disable-verity (they still look for the AVBf footer to locate the hash
-# tree).  We copy the entire AVB block verbatim from the stock image and
-# update the footer fields to point at the correct offset in the new image.
+# descriptor appended after the ramdisk.  The stock hash tree is computed over
+# the STOCK kernel — copying it verbatim after replacing the kernel makes the
+# hashes INVALID, and the bootloader rejects the image with "Preflash
+# validation failed".
+#
+# Fix: Build a MINIMAL AVB block with a vbmeta descriptor that has
+# allow_verification_disabled (flags bit 0) set. This tells the bootloader
+# "verification can be skipped" — no hash tree needed, no size bloat.
+# The image stays small and flashes cleanly with --disable-verification.
 ###############################################################################
-log "Preserving AVB block from stock image..."
+log "Creating minimal AVB block (allow_verification_disabled)..."
 python3 - "$STOCK_IMG" "$OUTPUT_IMG" <<'AVBEOF'
-import struct, sys
+import struct, sys, hashlib
 
 STOCK_IMG  = sys.argv[1]
 OUTPUT_IMG = sys.argv[2]
 
 AVB_FOOTER_MAGIC  = b'AVBf'
 AVB_FOOTER_SIZE   = 64
+AVB_DESCRIPTOR_MAGIC = b'AVB0'
 # Big-endian: 4s magic + I vmajor + I vminor + Q orig_size + Q vbmeta_off + Q vbmeta_size + 28s reserved
 AVB_FOOTER_FMT = '>4sIIQQQ28s'
 
@@ -156,54 +160,108 @@ with open(STOCK_IMG, 'rb') as f:
 
 footer_raw = stock[-AVB_FOOTER_SIZE:]
 if footer_raw[:4] != AVB_FOOTER_MAGIC:
-    print('[bootimg] No AVBf footer in stock image — skipping AVB preservation')
+    print('[bootimg] No AVBf footer in stock image — skipping AVB, flashing raw image')
     sys.exit(0)
 
-magic, vmajor, vminor, orig_size, vbmeta_off, vbmeta_size, reserved = \
-    struct.unpack(AVB_FOOTER_FMT, footer_raw)
+stock_vmajor, stock_vminor, stock_orig_size, stock_vbmeta_off, stock_vbmeta_size, stock_reserved = \
+    struct.unpack(AVB_FOOTER_FMT, footer_raw)[1:7]
 
-print(f'[bootimg] Stock AVB  : vbmeta_offset={vbmeta_off:,}  vbmeta_size={vbmeta_size:,}  orig_image_size={orig_size:,}')
-
-# The vbmeta descriptor lives at stock[vbmeta_off : vbmeta_off + vbmeta_size]
-# followed by the 64-byte footer at the very end.
-# The AVB block in the partition is:
-#   [vbmeta_off]  vbmeta descriptor  (vbmeta_size bytes, starts with "AVB0")
-#   [vbmeta_off + vbmeta_size ... -64]  hash tree  (the bulk — typically 40+ MB)
-#   [last 64 bytes]  AVBf footer
-#
-# We copy the descriptor + hash tree verbatim (bootloader won't check hashes
-# when --disable-verity is used), then write an updated footer pointing at the
-# correct offsets in the new image.
-avb_payload = stock[vbmeta_off : -AVB_FOOTER_SIZE]   # descriptor + hash tree
-if len(avb_payload) == 0:
-    print('[bootimg] WARNING: AVB payload is empty — skipping AVB preservation')
-    sys.exit(0)
+print(f'[bootimg] Stock AVB version: {stock_vmajor}.{stock_vminor}')
+print(f'[bootimg] Stock vbmeta descriptor size: {stock_vbmeta_size} bytes')
 
 with open(OUTPUT_IMG, 'rb') as f:
     new_image = f.read()
 
 new_image_size = len(new_image)
 
-# Build updated footer: same magic/versions/vbmeta_size, new offsets
+###############################################################################
+# Build a minimal AVB vbmeta header (Android Verified Boot 2.0)
+#
+# Layout (all big-endian):
+#   AVB magic: "AVB0" (4 bytes)
+#   Required header size: 256 bytes (minimum)
+#   Algorithm: NONE (0) — no signature, allows verification to be disabled
+#   Hash size: 0
+#   Salt size: 0
+#   Flags: 0x01 (AVB_VBMETA_IMAGE_FLAGS_VERIFICATION_DISABLED)
+#   Rollback index: 0
+#   Reserved fields: 0
+#   Descriptors: none (minimal)
+#   Auxiliary data: empty
+###############################################################################
+
+# AVB vbmeta header fields (from external/avb/libavb/avb_vbmeta_image.h):
+#   uint8_t  magic[4];              // 'AVB0'
+#   uint32_t required_header_size;  // 256
+#   uint32_t algorithm;             // NONE = 0
+#   uint64_t hash_offset;           // 0 (no hash)
+#   uint64_t hash_size;             // 0
+#   uint64_t signature_offset;      // 0 (no signature)
+#   uint64_t signature_size;        // 0
+#   uint64_t auxiliary_data_offset; // 256 (right after header)
+#   uint64_t auxiliary_data_size;   // 0 (no descriptors)
+#   uint32_t header_attr;           // flags (bit 0 = VERIFICATION_DISABLED)
+#   uint64_t rollback_index;        // 0
+#   uint8_t  reserved[64];
+# Total struct = 136 bytes, padded to required_header_size (256)
+
+avb_required_header_size = 256
+avb_algorithm = 0               # AVB_ALGORITHM_NONE — no signing
+avb_hash_offset = 0
+avb_hash_size = 0
+avb_signature_offset = 0
+avb_signature_size = 0
+avb_auxiliary_data_offset = avb_required_header_size  # right after header
+avb_auxiliary_data_size = 0     # no descriptors, no aux data
+avb_header_attr = 1             # AVB_VBMETA_IMAGE_FLAGS_VERIFICATION_DISABLED
+avb_rollback_index = 0
+
+avb_header = b'AVB0'                                           # magic
+avb_header += struct.pack('>I', avb_required_header_size)      # required_header_size
+avb_header += struct.pack('>I', avb_algorithm)                  # algorithm
+avb_header += struct.pack('>Q', avb_hash_offset)               # hash_offset
+avb_header += struct.pack('>Q', avb_hash_size)                 # hash_size
+avb_header += struct.pack('>Q', avb_signature_offset)          # signature_offset
+avb_header += struct.pack('>Q', avb_signature_size)            # signature_size
+avb_header += struct.pack('>Q', avb_auxiliary_data_offset)     # auxiliary_data_offset
+avb_header += struct.pack('>Q', avb_auxiliary_data_size)       # auxiliary_data_size
+avb_header += struct.pack('>I', avb_header_attr)               # header_attr (flags)
+avb_header += struct.pack('>Q', avb_rollback_index)            # rollback_index
+avb_header += b'\x00' * 64                                     # reserved[64]
+
+assert len(avb_header) == 136, f"AVB header struct is {len(avb_header)} bytes, expected 136"
+
+# Pad to required_header_size (256 bytes)
+avb_header_padded = avb_header + b'\x00' * (avb_required_header_size - len(avb_header))
+assert len(avb_header_padded) == 256, f"Padded AVB header is {len(avb_header_padded)} bytes, expected 256"
+
+# Build the minimal vbmeta image: padded header (256 bytes), no auxiliary data
+vbmeta_image = avb_header_padded  # 256 bytes, no descriptors, no aux data
+
+print(f'[bootimg] Minimal vbmeta created: {len(vbmeta_image)} bytes (was {stock_vbmeta_size} + 41 MB hash tree)')
+
+# Build AVBf footer pointing at the minimal vbmeta
 new_footer = struct.pack(AVB_FOOTER_FMT,
-    magic,
-    vmajor,
-    vminor,
-    new_image_size,          # original_image_size = end of kernel+ramdisk in new image
-    new_image_size,          # vbmeta_offset       = right after the new image content
-    vbmeta_size,             # vbmeta_size stays the same (descriptor size unchanged)
-    reserved,                # reserved bytes unchanged
+    AVB_FOOTER_MAGIC,
+    stock_vmajor,       # keep stock AVB version
+    stock_vminor,
+    new_image_size,     # original_image_size = end of boot data in new image
+    new_image_size,     # vbmeta_offset = right after boot data
+    len(vbmeta_image),  # vbmeta_size = our minimal descriptor size
+    stock_reserved,     # reserved bytes unchanged
 )
 
+# Write: boot data + minimal vbmeta + AVBf footer
 with open(OUTPUT_IMG, 'wb') as f:
     f.write(new_image)
-    f.write(avb_payload)
+    f.write(vbmeta_image)
     f.write(new_footer)
 
-final_size = new_image_size + len(avb_payload) + AVB_FOOTER_SIZE
-hash_tree_mb = (len(avb_payload) - vbmeta_size) / 1024 / 1024
-print(f'[bootimg] ✓ AVB block appended  : {vbmeta_size} B descriptor + {hash_tree_mb:.1f} MB hash tree + 64 B footer')
-print(f'[bootimg] ✓ New image size      : {final_size/1024/1024:.1f} MB  (stock was {len(stock)/1024/1024:.1f} MB)')
+final_size = new_image_size + len(vbmeta_image) + AVB_FOOTER_SIZE
+saved_mb = ((new_image_size + 41 * 1024 * 1024 + 64) - final_size) / 1024 / 1024
+print(f'[bootimg] ✓ Minimal AVB block appended: {len(vbmeta_image)} B descriptor + 64 B footer')
+print(f'[bootimg] ✓ New image size: {final_size/1024/1024:.1f} MB (saved ~{saved_mb:.0f} MB vs stock AVB block)')
+print(f'[bootimg] ✓ Flags: VERIFICATION_DISABLED — flash with --disable-verification')
 AVBEOF
 
 IN_SIZE=$(du -sh "$STOCK_IMG"  | cut -f1)
