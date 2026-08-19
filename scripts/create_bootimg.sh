@@ -205,38 +205,29 @@ new_image_size = len(new_image)
 #   uint8_t  reserved[64];
 # Total struct = 136 bytes, padded to required_header_size (256)
 
-avb_required_header_size = 256
-avb_algorithm = 0               # AVB_ALGORITHM_NONE — no signing
-avb_hash_offset = 0
-avb_hash_size = 0
-avb_signature_offset = 0
-avb_signature_size = 0
-avb_auxiliary_data_offset = avb_required_header_size  # right after header
-avb_auxiliary_data_size = 0     # no descriptors, no aux data
-avb_header_attr = 1             # AVB_VBMETA_IMAGE_FLAGS_VERIFICATION_DISABLED
-avb_rollback_index = 0
+# AvbVBMetaImageHeader is a fixed 256-byte big-endian structure. The old
+# shortened record was merely padded to 256 B, which is not a valid libavb
+# header. This complete header uses AVB_ALGORITHM_TYPE_NONE with no descriptor,
+# auxiliary, or authentication data and explicitly disables verification.
+# After `algorithm` there are 11 uint64_t values: the ten offset/size fields
+# plus rollback_index. The packed result must be exactly 256 bytes.
+header_format = '>4sIIQQI' + ('Q' * 11) + 'II48s80s'
+avb_header = struct.pack(
+    header_format,
+    b'AVB0',
+    1, 0,                    # required_libavb_version_major/minor
+    0, 0,                    # authentication_data_block_size, auxiliary_data_block_size
+    0,                       # AVB_ALGORITHM_TYPE_NONE
+    *([0] * 11),             # no hash/signature/key/metadata/descriptors; rollback index = 0
+    1,                       # AVB_VBMETA_IMAGE_FLAGS_VERIFICATION_DISABLED
+    0,                       # rollback_index_location
+    b'\x00' * 48,            # release_string
+    b'\x00' * 80,            # reserved
+)
+assert len(avb_header) == 256, f"AVB header is {len(avb_header)} bytes, expected 256"
 
-avb_header = b'AVB0'                                           # magic
-avb_header += struct.pack('>I', avb_required_header_size)      # required_header_size
-avb_header += struct.pack('>I', avb_algorithm)                  # algorithm
-avb_header += struct.pack('>Q', avb_hash_offset)               # hash_offset
-avb_header += struct.pack('>Q', avb_hash_size)                 # hash_size
-avb_header += struct.pack('>Q', avb_signature_offset)          # signature_offset
-avb_header += struct.pack('>Q', avb_signature_size)            # signature_size
-avb_header += struct.pack('>Q', avb_auxiliary_data_offset)     # auxiliary_data_offset
-avb_header += struct.pack('>Q', avb_auxiliary_data_size)       # auxiliary_data_size
-avb_header += struct.pack('>I', avb_header_attr)               # header_attr (flags)
-avb_header += struct.pack('>Q', avb_rollback_index)            # rollback_index
-avb_header += b'\x00' * 64                                     # reserved[64]
-
-assert len(avb_header) == 136, f"AVB header struct is {len(avb_header)} bytes, expected 136"
-
-# Pad to required_header_size (256 bytes)
-avb_header_padded = avb_header + b'\x00' * (avb_required_header_size - len(avb_header))
-assert len(avb_header_padded) == 256, f"Padded AVB header is {len(avb_header_padded)} bytes, expected 256"
-
-# Build the minimal vbmeta image: padded header (256 bytes), no auxiliary data
-vbmeta_image = avb_header_padded  # 256 bytes, no descriptors, no aux data
+# Minimal but complete vbmeta image: valid header, no auxiliary data.
+vbmeta_image = avb_header
 
 print(f'[bootimg] Minimal vbmeta created: {len(vbmeta_image)} bytes (was {stock_vbmeta_size} + 41 MB hash tree)')
 

@@ -130,17 +130,22 @@ setup_toolchain() {
   # mind".  For kernel cross-builds we need the *unwrapped* clang binary,
   # obtained via --print-prog-name=clang.
   CLANG_BIN=""
-  for candidate in \
-    "${HOME}/toolchains/clang/bin" \
-    "$(dirname "$(command -v clang-19 2>/dev/null)" 2>/dev/null)" \
-    "$(dirname "$(command -v clang-20 2>/dev/null)" 2>/dev/null)" \
-    "$(dirname "$(command -v clang-18 2>/dev/null)" 2>/dev/null)" \
-    "$(dirname "$(command -v clang 2>/dev/null)" 2>/dev/null)"; do
-    [ -n "$candidate" ] && [ -d "$candidate" ] && \
-      { CLANG_BIN="$candidate"; break; }
-  done
+  if [ -x "${HOME}/toolchains/clang/bin/clang" ]; then
+    CLANG_BIN="${HOME}/toolchains/clang/bin"
+  else
+    # Do not call dirname on an empty command -v result: dirname then returns
+    # '.', which looks valid but contains no clang binary and aborts under
+    # set -e/pipefail. Prefer the newest available real compiler.
+    for clang_name in clang-20 clang-19 clang-18 clang-14 clang; do
+      clang_path="$(command -v "${clang_name}" 2>/dev/null || true)"
+      if [ -n "${clang_path}" ] && [ -x "${clang_path}" ]; then
+        CLANG_BIN="$(dirname "${clang_path}")"
+        break
+      fi
+    done
+  fi
 
-  [ -z "$CLANG_BIN" ] && log_error "No clang found. Install clang-19 or set HOME/toolchains/clang."
+  [ -z "$CLANG_BIN" ] && log_error "No clang found. Install clang-14 or newer, or set HOME/toolchains/clang."
 
   export PATH="${CLANG_BIN}:${PATH}"
 
