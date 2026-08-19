@@ -7,7 +7,7 @@
 
 **Device:** Motorola G45 / G34 (SM6375 — Holi Platform)  
 **Developer:** Prince · VirgoYT707  
-**Base:** Linux 5.4.302 · Android 16  
+**Base:** Linux 5.4.302 · Android 17 (Evolution X)  
 **Version:** v2.0 Ultra
 
 **Controller app:** [FogOS PulseControl](https://github.com/darkvirgoyt-beep/FogOS-PulseControl)
@@ -67,7 +67,7 @@ FogOS-Extreme-Gaming-v2.0-Holi-YYYYMMDD.zip
 |-------------|--------|
 | Custom Recovery | ✅ TWRP installed |
 | Bootloader | ✅ Unlocked |
-| Android version | ✅ Android 13 / 14 / 16 |
+| Android version | ✅ Android 17 (Evolution X, fogos) |
 | Root (optional) | Magisk / KernelSU (for init.d) |
 
 > ⚠️ **Take a full backup before flashing.** Nandroid backup recommended.

@@ -4,7 +4,7 @@
 #
 # Developer : Prince · VirgoYT707
 # Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
-# Base      : Linux 5.4.302 · Android 16
+# Base      : Linux 5.4.302 · Android 17 (Evolution X)
 #
 # "I don't chase. I attract. I WIN." — VirgoYT707
 #
@@ -414,7 +414,7 @@ print_summary() {
   echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
   echo -e "${GREEN}║  Device  : Motorola G45 (SM6375 / Holi)             ║${NC}"
   echo -e "${GREEN}║  Dev     : Prince (VirgoYT707)                      ║${NC}"
-  echo -e "${GREEN}║  Base    : Linux 5.4.302 · Android 16               ║${NC}"
+  echo -e "${GREEN}║  Base    : Linux 5.4.302 · Android 17 (Evolution X) ║${NC}"
   echo -e "${GREEN}╠══════════════════════════════════════════════════════╣${NC}"
   echo -e "${GREEN}║  Output:                                             ║${NC}"
   echo -e "${GREEN}║  • ${ZIP_DIR}/${ZIP_NAME}  ${NC}"
