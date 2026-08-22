@@ -191,8 +191,12 @@ static int cass_select_task_rq_fair(struct task_struct *p, int prev_cpu,
 				    int sd_flag, int wake_flags,
 				    int sibling_count_hint)
 #else
+/*
+ * Non-WALT sched_class::select_task_rq has four arguments. CASS does not
+ * consume WALT's sibling_count_hint, so retain the stock callback ABI.
+ */
 static int cass_select_task_rq_fair(struct task_struct *p, int prev_cpu,
-				    int sd_flag, int wake_flags, int sibling_count_hint)
+				    int sd_flag, int wake_flags)
 #endif
 
 {

@@ -157,16 +157,11 @@ jobs:
             echo "⚠️ Gaming fragment not found — skipping merge"
           fi
 
-          # Step 2b — Merge extreme gaming fragment (disables COMPAT_VDSO for
-          #            clang-14 Ubuntu 22.04 compat; sets PERFORMANCE governor;
-          #            adds extra gaming tuning on top of the base fragment)
-          if [ -f "${EXTREME_FRAG}" ]; then
-            bash scripts/kconfig/merge_config.sh -m -O "${OUT}" \
-              "${OUT}/.config" "${EXTREME_FRAG}"
-            echo "✅ Extreme gaming fragment merged"
-          else
-            echo "⚠️ Extreme gaming fragment not found — skipping"
-          fi
+          # Do not merge the legacy extreme fragment in normal releases.
+          # It changes LOCALVERSION/KALLSYMS and breaks the ABI expected by
+          # Evolution X vendor_dlkm camera, audio, Dolby, charging, touch, and
+          # radio modules. FogOS profile tuning is applied at runtime instead.
+          echo "✅ Compatibility-safe build: experimental extreme fragment skipped"
 
           # Step 3 — Resolve any remaining unset symbols to safe defaults
           make O=${OUT} \
@@ -300,7 +295,7 @@ jobs:
       # ──────────────────────────────────────────────────────────────────────
       # ──────────────────────────────────────────────────────────────────────
       - name: 🌐 Ensure repository is public
-        if: github.event_name == 'push' || github.event.inputs.release == 'true'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true'
         run: |
           REPO="${{ github.repository }}"
           echo "Setting $REPO to public..."
@@ -318,7 +313,7 @@ jobs:
           fi
 
       - name: 🏷️ Set Release Tag
-        if: github.event_name == 'push' || github.event.inputs.release == 'true'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true'
         run: |
           VTAG="${{ github.event.inputs.version_tag }}"
           if [ -n "$VTAG" ]; then
@@ -330,7 +325,7 @@ jobs:
           fi
 
       - name: 🚀 Create GitHub Release
-        if: github.event_name == 'push' || github.event.inputs.release == 'true'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}

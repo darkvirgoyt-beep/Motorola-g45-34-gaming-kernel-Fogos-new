@@ -328,9 +328,13 @@ build_kernel() {
     make "${MAKE_FLAGS[@]}" olddefconfig
   fi
 
-  # Step 2b: Merge extreme gaming fragment (disables COMPAT_VDSO for clang19 NixOS compat)
-  if [ -f "${GAMING_EXTREME_FRAGMENT}" ]; then
-    log_info "Merging extreme gaming fragment: fogos_gaming_extreme.config"
+  # The legacy extreme fragment changes ABI-sensitive settings such as
+  # LOCALVERSION and KALLSYMS. Those changes prevent Evolution X vendor_dlkm
+  # camera, audio, Dolby, charging, touch, and radio modules from loading.
+  # Kernel profiles are applied at runtime through /dev/fogos_profile instead.
+  # Keep this fragment opt-in only for isolated developer experiments.
+  if [ "${FOGOS_MERGE_EXPERIMENTAL_EXTREME_CONFIG:-0}" = "1" ] && [ -f "${GAMING_EXTREME_FRAGMENT}" ]; then
+    log_warn "Merging experimental extreme config; not suitable for Evolution X vendor_dlkm compatibility."
     MERGE_SCRIPT="${KERNEL_DIR}/scripts/kconfig/merge_config.sh"
     if [ -f "$MERGE_SCRIPT" ]; then
       ARCH="${ARCH}" CROSS_COMPILE="${CROSS_COMPILE}" \
@@ -340,7 +344,8 @@ build_kernel() {
       grep -v "^#" "${GAMING_EXTREME_FRAGMENT}" >> "${OUT_DIR}/.config"
       make "${MAKE_FLAGS[@]}" olddefconfig
     fi
-    log_success "Extreme gaming config merged."
+  else
+    log_info "Skipping experimental extreme config; profiles are applied at runtime."
   fi
 
   # Step 2c: Verify the controller endpoint is built into the release kernel.
