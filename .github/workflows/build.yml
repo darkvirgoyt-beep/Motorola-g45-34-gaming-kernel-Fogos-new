@@ -264,7 +264,7 @@ jobs:
           # Copy kernel into AnyKernel3 directory
           cp "${KERNEL_PATH}" anykernel3/Image 2>/dev/null || true
 
-          ZIP_NAME="FogOS-Extreme-Gaming-v3-Holi-${DATE}"
+          ZIP_NAME="FogOS-Gaming-Rootless-A17-Holi-${DATE}"
           cd anykernel3
           zip -r9 "../release/${ZIP_NAME}.zip" . --exclude="*.git*"
           cd ..
