@@ -191,11 +191,17 @@ jobs:
           echo "🚀 Building kernel with $(nproc) jobs..."
           # pipefail ensures the make exit code survives the | tee pipe.
           set -o pipefail
+          # Build the raw boot Image only. Evolution X ships camera, audio,
+          # charging, WLAN, and other device drivers in matching vendor_dlkm
+          # modules; building the default 'modules' target attempts to relink
+          # that separate module stack and fails on intentionally external
+          # camera symbols such as cam_cci_get_subdev.
           make O=${OUT} \
             ARCH=${ARCH} \
             LLVM=1 LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             -j$(nproc) \
+            Image \
             2>&1 | tee build.log
           BUILD_EXIT=${PIPESTATUS[0]}
           echo "Build exit: ${BUILD_EXIT}"
