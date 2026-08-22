@@ -1,200 +1,56 @@
-# 🚀 Quick Start: Create & Flash boot.img via Fastboot
+# Fogos Kernel Boot-Image Integration
 
-## What is boot.img?
+## Scope
 
-A **boot.img** is a single partition image containing your kernel + ramdisk that can be flashed directly via `fastboot`. It's the **fastest and most direct way** to test a new kernel without TWRP.
+This repository can build a Fogos kernel payload (`Image.gz`) and Fogos device-tree outputs. The payload is **not** a standalone Android `boot.img`, and it must not be flashed directly with Fastboot.
 
----
+> **Never run** `fastboot flash boot Image.gz`, rename `Image.gz` to `boot.img`, or disable Android Verified Boot merely to force an image to flash. A `Preflash validation failed` message means the bootloader rejected the image before writing it.
 
-## ✅ Prerequisites
+A flashable Android boot image is specific to the installed ROM build. It must preserve the exact boot header, ramdisk, command line, vendor modules, DTB/DTBO arrangement, and verified-boot metadata expected by that ROM.
 
-1. **Built kernel** → Run: `./build_fogos.sh`
-2. **Stock boot.img** → Extract from:
-   - Motorola firmware ROM package, OR
-   - Your phone's TWRP backup (`/recovery_backup/boot.img`)
-3. **fastboot installed** → `sudo apt install fastboot` (Linux/Mac) or [download from Google](https://developer.android.com/tools/releases/platform-tools)
-4. **Bootloader unlocked** → Check: `adb reboot bootloader` → you should see "UNLOCKED"
-5. **mkbootimg tools** → `sudo apt install mkbootimg` (includes both mkbootimg and unpack_bootimg)
+## Supported build artifact
 
----
-
-## 🔧 Step 1: Create boot.img
-
-### Option A: Automatic (Recommended)
+Build the Fogos Gaming configuration with:
 
 ```bash
-# From repo root
-chmod +x scripts/create_bootimg.sh
-./scripts/create_bootimg.sh stock_boot.img FogOS-boot.img
+make O=out ARCH=arm64 vendor/fogos_gaming_defconfig
+make -j"$(nproc)" O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+  KCFLAGS='-Wno-error' Image.gz dtbs
 ```
 
-**What it does:**
-- ✅ Extracts parameters from your stock boot.img
-- ✅ Packs in your compiled kernel (`out/arch/arm64/boot/Image*`)
-- ✅ Creates `FogOS-boot.img`
+The output files are:
 
----
+| File | Meaning |
+|---|---|
+| `out/arch/arm64/boot/Image.gz` | Kernel payload. It is not directly flashable. |
+| `out/arch/arm64/boot/dts/vendor/qcom/blair-moto-fogos-base.dtb` | Fogos base device tree. |
+| `out/arch/arm64/boot/dts/vendor/qcom/blair-fogos-*-overlay.dtbo` | Fogos board overlays. |
 
-### Option B: Manual (using mkbootimg)
+## Before creating any boot image
 
-If the script doesn't work, do it manually:
+Only proceed when all of the following are true.
 
-```bash
-# Get stock boot params
-unpackbootimg -i stock_boot.img
-# Outputs: bootimg.cfg (contains offsets, base address, etc.)
+1. You have the unmodified `boot.img` from the **same Evolution X build currently installed** on your Fogos device.
+2. You have a known-good Fogos-compatible unpack/repack workflow that retains the original boot header and ramdisk.
+3. The ROM maintainer has confirmed that the kernel ABI, modules, DTB/DTBO layout, and boot-image format match this source.
+4. The bootloader is unlocked, and you have recovery files for both boot slots.
+5. You can restore the original matching `boot.img` if the test fails.
 
-# Create new boot with your kernel
-mkbootimg \
-  --kernel out/arch/arm64/boot/Image \
-  --ramdisk ramdisk.img.gz \
-  --base 0x80000000 \
-  --kernel_offset 0x8000 \
-  --ramdisk_offset 0x1000000 \
-  --tags_offset 0x100 \
-  --pagesize 4096 \
-  --output FogOS-boot.img
-```
+## Android version compatibility
 
----
+| Target ROM | Status |
+|---|---|
+| Android 16, with the matching Fogos 5.4 source and boot interface | Kernel payload is build-validated. Repacking and device testing are still required. |
+| Android 17 | Not verified by this repository. Do not flash until the ROM maintainer confirms the ABI and boot-image interface match. |
 
-## ⚡ Step 2: Flash via Fastboot
+## Recovery from a rejected Fastboot flash
 
-### Setup PC & Phone
+If Fastboot reported `Preflash validation failed`, it normally rejected the image before it wrote the partition. Rebooting should return to the existing slot. Do not retry with the same file. Verify the phone’s product, unlock state, current slot, Fastboot mode, ROM build, and the provenance of the boot image first.
 
-```bash
-# Enable Developer Options on phone:
-Settings → About Phone → tap Build Number 7x → Developer Options enabled
+The correct recovery image is the original `boot.img` from the same ROM/firmware build, not a random stock image from another Android version.
 
-# Enable USB Debugging:
-Settings → Developer Options → USB Debugging → ON
+## References
 
-# Boot to bootloader on phone:
-adb reboot bootloader
-
-# Verify phone connected:
-fastboot devices
-# Should show your device
-```
-
-### Flash the Kernel
-
-```bash
-# Flash boot partition
-fastboot flash boot FogOS-boot.img
-
-# Reboot to system
-fastboot reboot
-
-# Watch boot logs
-adb logcat -s "FogOS"
-```
-
----
-
-## ⏱️ Timing
-
-| Step | Time |
-|------|------|
-| Kernel build | ~2-3 min |
-| Create boot.img | ~10 sec |
-| Flash via fastboot | ~5 sec |
-| First boot | ~1 min |
-| **Total** | **~5 min** |
-
----
-
-## ✅ Verify It Worked
-
-After boot completes:
-
-```bash
-# Check kernel version
-adb shell uname -r
-# Output: 5.4.302-FogOS-Extreme-Gaming-v2.0
-
-# Check boot params applied
-adb shell cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_governor
-# Output: performance
-
-# Check GPU
-adb shell cat /sys/class/kgsl/kgsl-3d0/devfreq/governor
-# Output: performance
-```
-
----
-
-## 🆘 Troubleshooting
-
-### ❌ "No kernel image found"
-
-Run the build first:
-```bash
-./build_fogos.sh
-```
-
-### ❌ "fastboot: device not found"
-
-```bash
-# Check USB debugging enabled
-adb devices   # should list your phone
-
-# Try manual bootloader entry
-adb shell reboot bootloader
-
-# On newer Motorola, you may need:
-fastboot reboot fastboot  # to enter fastbootd (slot A/B devices)
-```
-
-### ❌ "Device is corrupt" after flash
-
-This is an **AVB (Android Verified Boot)** error. The boot.img might be for wrong Android version.
-
-**Quick fix:**
-```bash
-adb reboot bootloader
-fastboot --disable-verity --disable-verification flash vbmeta vbmeta.img
-fastboot flash boot FogOS-boot.img
-fastboot reboot
-```
-
-### ❌ "Bootloop" (phone keeps restarting)
-
-Your ramdisk might be incompatible.
-
-**Workaround:**
-```bash
-# Reflash stock boot to recover
-fastboot flash boot stock_boot.img
-fastboot reboot
-
-# Then try boot.img again, or use TWRP instead
-```
-
----
-
-## 🎯 Comparison: Fastboot vs TWRP
-
-| Method | Speed | Recovery | Boot |
-|--------|-------|----------|------|
-| **Fastboot** | ⚡ 5-10 sec | Requires PC | Same |
-| **TWRP** | ~30 sec | Works offline | Same |
-
-**Fastboot is better for:** rapid testing during development  
-**TWRP is better for:** reliable flashing without PC
-
----
-
-## 📚 Reference
-
-- [Android Boot Image Format](https://source.android.com/devices/bootloader/boot-image-header)
-- [Fastboot Commands](https://developer.android.com/tools/releases/platform-tools)
-- [Motorola G45 Firmware](https://firmware.motorola.com/)
-
----
-
-<div align="center">
-
-**⚡ Fast testing, fast development! — VirgoYT707 ⚡**
-
-</div>
+[1]: https://source.android.com/docs/core/architecture/bootloader/boot-image-header "Android boot image header"
+[2]: https://source.android.com/docs/security/features/verifiedboot "Android Verified Boot"
+[3]: https://developer.android.com/tools/releases/platform-tools "Android SDK Platform-Tools"
