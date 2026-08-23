@@ -259,6 +259,16 @@ jobs:
           echo "BOOT_IMG=release/FogOS-boot-${DATE}.img" >> $GITHUB_ENV
 
       # ──────────────────────────────────────────────────────────────────────
+      - name: ✅ Validate Motorola preflash contract
+        run: |
+          # Fail closed unless the release remains a full partition-sized image
+          # with the stock Evolution X AVB metadata preserved and only the
+          # SHA-256 hash descriptor refreshed for the new kernel payload.
+          python3 scripts/validate_bootimg_contract.py \
+            stock/boot.img \
+            "release/FogOS-boot-${DATE}.img"
+
+      # ──────────────────────────────────────────────────────────────────────
       - name: 🤐 Prepare AnyKernel3 ZIP (TWRP flash)
         run: |
           # Copy kernel into AnyKernel3 directory
