@@ -21,11 +21,42 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y bats
 
-      - name: Syntax-check FogOS scripts
+      - name: Syntax-check FogOS release scripts
         run: |
           bash -n build_fogos.sh
+          bash -n anykernel3/anykernel.sh
           bash -n anykernel3/fogos_game_detector.sh
           bash -n anykernel3/fogos_gaming_init.sh
+          bash -n anykernel3/fogos_lib.sh
+          bash -n scripts/create_bootimg.sh
+          python3 -m py_compile scripts/validate_bootimg_contract.py
 
-      - name: Run unit tests
+      - name: Run unit and compatibility tests
         run: bats tests/*.bats
+
+  pulsecontrol-android-build:
+    name: PulseControl Android build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 build dependencies
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Compile rootless PulseControl debug APK
+        working-directory: fogos-control
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --no-daemon

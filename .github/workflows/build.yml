@@ -144,11 +144,8 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             ${DEFCONFIG}
 
-          EXTREME_FRAG="arch/arm64/configs/vendor/fogos_gaming_extreme.config"
-
-          # Step 2 — Merge gaming optimisation fragment (audio, Bolero, WCD937x,
-          #           Dolby Atmos, SW_SYNC for screen recording, GPU/CPU tuning …)
-          #           merge_config.sh: -m = merge into existing .config, -O = output dir
+          # Step 2 — Merge the audited minimal runtime-profile fragment.
+          # merge_config.sh: -m = merge into existing .config, -O = output dir.
           if [ -f "${GAMING_FRAG}" ]; then
             bash scripts/kconfig/merge_config.sh -m -O "${OUT}" \
               "${OUT}/.config" "${GAMING_FRAG}"
@@ -157,11 +154,11 @@ jobs:
             echo "⚠️ Gaming fragment not found — skipping merge"
           fi
 
-          # Do not merge the legacy extreme fragment in normal releases.
-          # It changes LOCALVERSION/KALLSYMS and breaks the ABI expected by
-          # Evolution X vendor_dlkm camera, audio, Dolby, charging, touch, and
-          # radio modules. FogOS profile tuning is applied at runtime instead.
-          echo "✅ Compatibility-safe build: experimental extreme fragment skipped"
+          # The only supported tuning path is the minimal fragment above plus
+          # runtime profile changes through /dev/fogos_profile. Legacy static
+          # fragments that changed module modes, LOCALVERSION, or KALLSYMS were
+          # removed because they break Evolution X vendor_dlkm compatibility.
+          echo "✅ Compatibility-safe build: only the audited minimal profile fragment is used"
 
           # Step 3 — Resolve any remaining unset symbols to safe defaults
           make O=${OUT} \

@@ -9,6 +9,7 @@ previously had **no test coverage**.
 | `anykernel3/fogos_game_detector.sh` | `game_detector.bats` | `is_game`, `write`, `log`, `truncate_log`, `get_foreground_app` |
 | `anykernel3/fogos_gaming_init.sh`   | `gaming_init.bats`   | `log`, `optimize_game` (process pinning / RT priority) |
 | `build_fogos.sh`                    | `build_fogos.bats`   | `parse_args`, `select_defconfig`, `log_*`, `setup_toolchain` |
+| Android 17 ABI, rootless installer, PulseControl, boot packer | `compatibility_contract.bats` | Vendor module modes, stock local-version/CFI/modversion invariants, no KSU, no unsafe legacy fragment, active-slot rootless installer, non-root `/dev/fogos_profile` client, and AVB validator gate |
 
 ## Framework
 
@@ -36,4 +37,4 @@ sudo apt-get install -y bats
 ./tests/run_tests.sh tests/game_detector.bats
 ```
 
-CI runs the suite automatically via `.github/workflows/tests.yml`.
+CI runs the suite automatically via `.github/workflows/tests.yml`. The same workflow also compiles the `fogos-control` PulseControl debug APK against Android API 35, so the rootless profile client cannot silently regress.
