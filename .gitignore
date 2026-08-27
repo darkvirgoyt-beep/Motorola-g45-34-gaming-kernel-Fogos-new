@@ -161,3 +161,7 @@ Android.bp
 *.pyc
 __pycache__/
 /tmp/fogos-*
+
+# User-uploaded evidence and local device artifacts — never commit these.
+/attached_assets/
+attached_assets/
