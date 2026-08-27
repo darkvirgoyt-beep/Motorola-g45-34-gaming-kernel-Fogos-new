@@ -59,6 +59,12 @@ setup() {
   ! grep -Eq '^[[:space:]]*(do\.modules|do\.systemless)=1' "$installer"
 }
 
+@test "fogos overlay preserves stock thermal safety" {
+  local overlay="${REPO_ROOT}/arch/arm64/boot/dts/vendor/qcom/blair-fogos-common-overlay.dtsi"
+
+  ! grep -Eq 'thermal-governor = "user_space"|temperature = <125000>|sdm-skin-therm-usr|chg-skin-therm-usr' "$overlay"
+}
+
 @test "PulseControl remains a direct non-root profile client" {
   local app_src="${REPO_ROOT}/fogos-control/app/src/main"
 

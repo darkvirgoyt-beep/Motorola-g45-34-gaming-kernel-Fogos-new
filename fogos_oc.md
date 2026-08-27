@@ -1,112 +1,44 @@
-# FogOS — Overclocking Guide (SM6375 / Holi)
-## Can you overclock from 2.3 GHz to 2.5 GHz?
+# FogOS — Motorola G45/G34 Performance Guide
 
-**Short answer:** Yes, but it requires modifying the device tree (DTS). Here is the full explanation and how to do it.
+## Scope
 
----
+This guide applies to the Motorola G45/G34 (`fogos`) on the Evolution X Android 17 baseline. FogOS is a **stock-compatible performance profile**, not an overclock. The release must preserve the exact Evolution X `vendor_dlkm` ABI used by the camera, audio/Dolby, charging, Wi‑Fi, fingerprint, touch, sensors, and radio drivers.
 
-## How SM6375 CPU clocking works
+## What FogOS safely tunes
 
-The SM6375 uses Qualcomm's **EPSS (Epoch SubSystem)** hardware clock controller.
-Frequencies are stored in a **hardware Look-Up Table (LUT)** inside the EPSS firmware.
-The kernel reads these entries and exposes them as `scaling_available_frequencies`.
+The audited FogOS runtime helper applies only bounded process-level tuning when a supported game is detected:
 
-**Stock SM6375 Kryo 560 Gold (big core) LUT:**
-```
-614400
-864000
-1075200
-1267200
-1459200
-1651200
-1843200
-1958400
-2054400
-2208000   ← typical hardware ceiling
-```
+- Affinity to the SM6375/Holi performance cluster (`f0`, CPUs 4–7 on the supported fogos layout).
+- A modest `nice -10` priority rather than FIFO or real-time priority.
+- Placement in the existing top-app task group when that node is available.
+- Runtime profile selection through the restricted `/dev/fogos_profile` interface.
 
-> Some silicon bins (higher-quality chips) may go up to 2.3 GHz if Qualcomm validated that bin. Whether your chip does 2.3 GHz depends on the physical silicon.
+The helper does **not** write CPU frequency tables, GPU frequency tables, voltage nodes, charging limits, thermal zones, or AVB settings. Stock thermal protection remains enabled.
 
----
+## What is intentionally not supported
 
-## What the init script already does
+FogOS does not add unvalidated OPP entries, voltage changes, thermal-trip overrides, or forced maximum frequency on all cores. Do not modify the Qualcomm EPSS LUT or bypass firmware frequency limits. Do not disable thermal zones or set passive trips to 125°C. Those changes can cause overheating, battery wear, charging faults, instability, or loss of stock hardware behavior.
 
-The `fogos_gaming_init.sh` sets:
-```sh
-scaling_min_freq = cpuinfo_max_freq   # whatever is your chip's actual ceiling
-scaling_max_freq = cpuinfo_max_freq
-governor         = performance
-```
-This means your CPU **always runs at 100% of its certified maximum**. If your chip shows 2.3 GHz in `cpuinfo_max_freq`, it runs at 2.3 GHz 100% of the time.
+The old `fogos_gaming_extreme.config` and unsafe duplicate gaming defconfig were removed because they could change module modes and other ABI-sensitive options. Do not recreate them under another filename.
 
----
+## Runtime profiles
 
-## True OC: Adding 2.5 GHz OPP entry
+`balanced` is the default. `performance` and `extreme_gaming` are accepted profile names, but they must remain bounded by the trusted userspace profile implementation and the stock thermal/frequency limits. A profile name alone is not evidence of a higher sustained clock or frame rate.
 
-To actually run at 2.5 GHz, you must add a new frequency+voltage OPP entry in the device tree and rebuild.
+## Verification
 
-### Step 1 — Locate the OPP table in the DTS
+Before a device test, confirm the generated configuration preserves:
 
-In your Moto G45 DTS (once you have it), find:
-```dts
-&CPU4 {
-    /* or cluster4 / cluster1 on Holi */
-    opp-table {
-        compatible = "operating-points-v2-kryo-cpu";
-        ...
-        opp-2208000000 {
-            opp-hz = /bits/ 64 <2208000000>;
-            opp-microvolt = <...>;
-        };
-    };
-};
+```text
+CONFIG_CAMERA_CCI_INTF=m
+CONFIG_SND_SOC_FS1815=m
+CONFIG_MODVERSIONS=y
+CONFIG_LTO=y
+CONFIG_THINLTO=y
+CONFIG_CFI_CLANG=y
+CONFIG_CFI_CLANG_SHADOW=y
+CONFIG_FOGOS_PROFILE=y
+KernelSU disabled
 ```
 
-### Step 2 — Add the new OPP entry
-
-```dts
-        opp-2400000000 {
-            opp-hz = /bits/ 64 <2400000000>;
-            opp-microvolt = <1000000>;  /* Start at 1.0V — increase if unstable */
-            clock-latency-ns = <200000>;
-        };
-        opp-2496000000 {
-            opp-hz = /bits/ 64 <2496000000>;
-            opp-microvolt = <1050000>;  /* 1.05V for 2.5GHz — tune up if crashes */
-            clock-latency-ns = <200000>;
-        };
-```
-
-### Step 3 — Verify EPSS LUT accepts the new entry
-
-Qualcomm EPSS firmware may clamp to its internal LUT. Check after boot:
-```bash
-cat /sys/devices/system/cpu/cpu6/cpufreq/scaling_available_frequencies
-```
-If 2496000 does not appear, the HW LUT is clamping it. You would then need to modify `drivers/cpufreq/qcom-cpufreq-hw.c` to bypass the LUT ceiling.
-
-### Step 4 — Voltage tuning (important for stability)
-- Start with +25mV above the highest stock entry voltage
-- Run a stress test: `stress-ng --cpu 8 --timeout 5m`
-- Increase by 25mV increments if you get reboots
-- Temperature will rise — keep an eye on sensor readings
-
----
-
-## ⚠️ Safety note
-
-- **Stability first:** If the phone bootloops, flash the zip again without the OC entry
-- **Temperature:** Disabling thermal + OC means you must watch temps manually at first
-- **Battery wear:** Running at max voltage/freq constantly drains battery faster and creates more heat — expected for gaming mode
-- The init script can be modified to apply OC only when a game is detected (see `optimize_game()` function) if you want to preserve battery during non-gaming use
-
----
-
-## Current effective state (without DTS OC)
-
-With the FogOS v2.0 init script, your CPU is running at:
-- **All 8 cores at max rated frequency, 100% of the time**
-- **Performance governor (never scales down)**
-- **No thermal throttle (trip = 125°C)**
-
-This gives you the maximum performance your chip can safely deliver. The init script already does everything software can do — actual OC requires the DTS changes above.
+For the Motorola G45/G34 test, remain on the working slot B. Temporarily boot the matching Android 17 boot image first, then test camera, audio/Dolby Atmos, charging, Wi‑Fi, Bluetooth, fingerprint, sensors, touch, reboot, and sustained gaming thermals. A 120-FPS label is only a target/demo description unless a repeatable device benchmark verifies sustained behavior.

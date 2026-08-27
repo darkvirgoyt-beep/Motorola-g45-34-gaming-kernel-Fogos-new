@@ -6,7 +6,10 @@
 FOG_LIB_LOADED=1
 
 FOG_GAMES="com.pubg.imobile com.tencent.ig com.dts.freefireth com.dts.freefiremax"
+# SM6375/Holi fogos: CPUs 4-7 are the performance cluster. Keep this
+# affinity mask fixed and do not write frequency, voltage, or thermal nodes.
 FOG_BIG_MASK="f0"
+FOG_GAME_NICE="-10"
 
 fog_write() {
     echo "$1" > "$2" 2>/dev/null
@@ -25,7 +28,8 @@ fog_is_game() {
 
 fog_pin_big_cores() {
     _pid="$1"
-    _nice="${2:--20}"
+    _nice="${2:-$FOG_GAME_NICE}"
+    [ "$_nice" = "-10" ] || _nice="$FOG_GAME_NICE"
     [ -n "$_pid" ] || return 1
     taskset -p "$FOG_BIG_MASK" "$_pid" 2>/dev/null
     renice -n "$_nice" -p "$_pid" 2>/dev/null

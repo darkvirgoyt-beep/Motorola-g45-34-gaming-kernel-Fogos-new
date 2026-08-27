@@ -24,7 +24,7 @@ teardown() {
   [[ "$output" == *"boot step done"* ]]
 }
 
-@test "optimize_game pins a running game to big cores with max priority" {
+@test "optimize_game pins a running game to big cores with bounded priority" {
   mock_cmd pgrep 'echo 4242'
   mock_cmd renice
   mock_cmd chrt
@@ -33,8 +33,8 @@ teardown() {
   run optimize_game "com.pubg.imobile"
 
   [[ "$output" == *"Optimized: com.pubg.imobile (PID 4242)"* ]]
-  assert_called "renice -n -20 -p 4242"
-  assert_called "chrt -f -p 99 4242"
+  assert_called "renice -n -10 -p 4242"
+  refute_called "chrt"
   assert_called "taskset -p f0 4242"
 }
 

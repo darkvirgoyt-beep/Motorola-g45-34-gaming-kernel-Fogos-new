@@ -32,9 +32,10 @@ optimize_game() {
     PKGNAME="$1"
     PID="$(pgrep -f "$PKGNAME" 2>/dev/null | head -1)"
     if [ -n "$PID" ]; then
-        fog_pin_big_cores "$PID" -20
-        chrt -f -p 99 "$PID" 2>/dev/null
-        fog_write "$PID" /dev/stune/top-app/tasks
+        # Keep tuning bounded: performance-cluster affinity, a modest nice
+        # value, and top-app placement only. Never use FIFO/RT priority.
+        fog_pin_big_cores "$PID"
+        fog_write_if "$PID" /dev/stune/top-app/tasks
         log "Optimized: $PKGNAME (PID $PID)"
     fi
 }
@@ -43,6 +44,6 @@ if [ "${FOGOS_LIB_ONLY:-0}" = "1" ]; then
     return 0 2>/dev/null || exit 0
 fi
 
-# Runtime tuning is deliberately limited to profile detection. It does not
+# Runtime tuning is deliberately limited to bounded task placement. It does not
 # modify thermal zones, voltage tables, charging limits, or CPU/GPU frequency caps.
 log "FogOS runtime helper installed; stock thermal protection remains enabled."
