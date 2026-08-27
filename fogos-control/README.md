@@ -9,7 +9,7 @@ FogOS Control is a Kotlin Android companion application for the FogOS kernel. It
 
 This is a **non-root app**, not an ordinary unprivileged APK. The ROM must install the platform-signed package `com.fogos.control` as a privileged system application and assign it the `fogos_app` SELinux domain. Merge the policy snippets under `../sepolicy/fogos/` into the ROM policy. Flashing the kernel without the matching ROM-side device label and SELinux mapping will make the app show “Connection unavailable,” by design.
 
-The kernel driver stores the selected profile. The trusted FogOS runtime service under `magisk/fogos/` reads the selected value and applies the existing CPU, GPU, scheduler, VM/I/O, touch, and thermal-safe tuning. A ROM without Magisk must run that same manager from an equivalent trusted system service or init stage.
+The kernel driver applies the selected profile directly. `performance` and `extreme_gaming` add a bounded CPU-idle latency quality-of-service request, while `balanced` removes that request and restores stock idle behavior. The driver does not alter CPU/GPU frequencies, voltages, scheduler tunables, VM/I/O values, touch settings, thermal zones, charging limits, or AVB state; Android and Motorola thermal protection remain active in every profile.
 
 ## Build
 
@@ -25,8 +25,8 @@ The repository workflow `.github/workflows/fogos-control.yml` builds the debug A
 
 | Profile | Kernel request | Runtime behavior |
 |---|---|---|
-| Balanced | `balanced` | Normal scheduler, frequency, GPU, I/O, touch, and thermal-safe settings. |
-| Performance | `performance` | Higher minimum CPU/GPU operating points and input boost while preserving thermal protection. |
-| Extreme gaming | `extreme_gaming` | Strongest validated FogOS gaming tuning, with thermal zones and emergency protection retained. |
+| Balanced | `balanced` | Removes the FogOS latency request and restores stock CPU-idle behavior. |
+| Performance | `performance` | Applies a 1000 microsecond CPU-idle latency cap for improved wake-up responsiveness. |
+| Extreme gaming | `extreme_gaming` | Applies a 500 microsecond CPU-idle latency cap for the strongest supported FogOS latency hint. |
 
-The application intentionally does not expose raw frequency, thermal-trip, scheduler, or sysctl sliders. That keeps the kernel interface bounded and allows the runtime service to reject unsupported hardware paths safely.
+The application intentionally does not expose raw frequency, thermal-trip, scheduler, sysctl, voltage, or charging sliders. That keeps the kernel interface bounded and lets the driver reject unsupported values safely.

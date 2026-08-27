@@ -69,17 +69,17 @@ enum class Profile(
     BALANCED(
         id = "balanced",
         title = "Balanced",
-        description = "Normal thermal and battery behavior.",
+        description = "Restores stock CPU-idle behavior and thermal protection.",
     ),
     PERFORMANCE(
         id = "performance",
         title = "Performance",
-        description = "Faster response while retaining thermal protection.",
+        description = "Applies a modest CPU-idle latency hint while retaining stock thermal limits.",
     ),
     EXTREME_GAMING(
         id = "extreme_gaming",
         title = "Extreme gaming",
-        description = "Maximum FogOS gaming tuning with thermal protection retained.",
+        description = "Applies the strongest supported low-latency hint; stock thermal limits stay active.",
     ),
 }
 

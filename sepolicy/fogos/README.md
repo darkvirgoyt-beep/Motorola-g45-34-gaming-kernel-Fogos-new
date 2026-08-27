@@ -8,7 +8,7 @@ performance
 extreme_gaming
 ```
 
-The driver is intentionally not a general sysfs or scheduler interface. The existing FogOS runtime service runs with the device's trusted root context, reads the selected value, and applies the profile through the existing `profile_manager.sh`. The Kotlin application never invokes `su` and never writes CPU, GPU, thermal, scheduler, or VM paths directly.
+The driver is intentionally not a general sysfs or scheduler interface. Profile selection is applied inside the restricted kernel driver as a bounded CPU-idle latency quality-of-service hint: `performance` uses a 1000 microsecond limit and `extreme_gaming` uses a 500 microsecond limit. These hints may improve wake-up responsiveness, but they do not set CPU/GPU frequencies, voltages, scheduler values, thermal trips, charging limits, or AVB state. The Kotlin application never invokes `su` and never writes CPU, GPU, thermal, scheduler, or VM paths directly.
 
 ## Required ROM integration
 
@@ -37,19 +37,17 @@ The corresponding `mac_permissions.xml` mapping must set `seinfo="fogos_app"` on
 
 Do **not** add `sys_admin`, `dac_override`, broad `sysfs` write permissions, or `su` calls. The node uses mode `0666` only so the dedicated SELinux `fogos_app` domain can open it without inheriting root or system UID privileges; the driver validates every value and SELinux is the actual authorization boundary. If the ROM uses a system service instead of direct app access, use a restrictive `0660` owner/group and keep the service as the only client.
 
-## Runtime requirement
+## Runtime behavior
 
-The profile manager service must run after boot. The AnyKernel package now includes `magisk/fogos/` and installs the profile bridge into the FogOS Magisk module when Magisk is available. On a ROM without Magisk, the maintainer must run the same `service.sh` from an equivalent trusted system service or init stage. Without this trusted applier, the app can update the kernel's selected value but no CPU/GPU tuning will be applied.
+No Magisk module, init.d script, background daemon, root shell, or systemless payload is required or shipped. After the platform-signed privileged application writes one validated profile value to `/dev/fogos_profile`, the kernel applies or removes only its own bounded CPU-idle latency request. `balanced` removes the FogOS request and restores stock idle behavior immediately. Android and Motorola thermal mitigation remains authoritative in every profile.
 
 ## Device verification
 
-After flashing the kernel and booting the matching ROM, verify from a trusted development shell:
+After flashing the kernel and booting the matching ROM, select each profile from the signed FogOS control application and confirm that its read-back succeeds. For trusted development validation, inspect the kernel log after changing a profile:
 
 ```sh
 cat /dev/fogos_profile
-printf 'performance\n' > /dev/fogos_profile
-cat /dev/fogos_profile
-logcat -d | grep -i fogos
+logcat -d | grep -i fogos_profile
 ```
 
 The application should be installed only after the device node and SELinux mapping are present. A read or write failure in the app means the ROM-side privileged-app integration is incomplete; it is not a reason to weaken SELinux globally.

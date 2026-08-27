@@ -72,6 +72,27 @@ setup() {
   ! grep -RE '(Runtime\.getRuntime|ProcessBuilder|/system/bin/sh|[[:space:]]su[[:space:]])' "$app_src"
 }
 
+@test "FogOS profiles use only a bounded kernel latency QoS hint" {
+  local profile_src="${REPO_ROOT}/drivers/misc/fogos_profile.c"
+
+  grep -F '#define FOGOS_PERFORMANCE_LATENCY_US 1000' "$profile_src"
+  grep -F '#define FOGOS_EXTREME_GAMING_LATENCY_US 500' "$profile_src"
+  grep -F 'pm_qos_add_request(&fogos_latency_qos, PM_QOS_CPU_DMA_LATENCY,' "$profile_src"
+  grep -F 'pm_qos_remove_request(&fogos_latency_qos);' "$profile_src"
+  ! grep -Eq 'scaling_(min|max)_freq|force_clk_on|force_no_nap|trip_point|/sys/class/thermal|sched_boost|sched_util_clamp' "$profile_src"
+}
+
+@test "release source contains no root runtime payload or legacy tuning scripts" {
+  local packer="${REPO_ROOT}/build_fogos.sh"
+
+  [ ! -e "${REPO_ROOT}/magisk" ]
+  [ ! -e "${REPO_ROOT}/anykernel3/fogos_lib.sh" ]
+  [ ! -e "${REPO_ROOT}/anykernel3/fogos_gaming_init.sh" ]
+  [ ! -e "${REPO_ROOT}/anykernel3/fogos_game_detector.sh" ]
+  ! grep -F 'cp -a "${KERNEL_DIR}/magisk"' "$packer"
+  ! grep -F 'magisk META-INF' "$packer"
+}
+
 @test "boot packer preserves the stock AVB contract and CI invokes the validator" {
   local packer="${REPO_ROOT}/scripts/create_bootimg.sh"
   local validator="${REPO_ROOT}/scripts/validate_bootimg_contract.py"

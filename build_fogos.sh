@@ -390,15 +390,15 @@ package_zip() {
        \( -name "*holi*" -o -name "*sm6375*" -o -name "*moto*" \) \
        -exec cp {} "${ANYKERNEL_DIR}/dtbs/" \; 2>/dev/null || true
 
-  # Include the root-side profile bridge used by the non-root Kotlin app.
+  # A rootless release must never retain a stale runtime payload from an
+  # earlier build directory.  Profile changes are applied inside the restricted
+  # kernel endpoint; the ZIP ships no Magisk module, init.d script, or daemon.
   rm -rf "${ANYKERNEL_DIR}/magisk"
-  cp -a "${KERNEL_DIR}/magisk" "${ANYKERNEL_DIR}/magisk"
 
   # Build ZIP
   cd "${ANYKERNEL_DIR}"
   if ! zip -r9 "${ZIP_DIR}/${ZIP_NAME}" \
-    anykernel.sh fogos_lib.sh fogos_gaming_init.sh fogos_game_detector.sh magisk META-INF \
-    dtbs Image* tools 2>/dev/null; then
+    anykernel.sh META-INF dtbs Image* tools 2>/dev/null; then
     rm -f "${ZIP_DIR}/${ZIP_NAME}"
     cd "${KERNEL_DIR}"
     log_error "AnyKernel3 ZIP creation failed."

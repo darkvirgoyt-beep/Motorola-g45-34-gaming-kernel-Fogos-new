@@ -25,9 +25,6 @@ jobs:
         run: |
           bash -n build_fogos.sh
           bash -n anykernel3/anykernel.sh
-          bash -n anykernel3/fogos_game_detector.sh
-          bash -n anykernel3/fogos_gaming_init.sh
-          bash -n anykernel3/fogos_lib.sh
           bash -n scripts/create_bootimg.sh
           python3 -m py_compile scripts/validate_bootimg_contract.py
 
