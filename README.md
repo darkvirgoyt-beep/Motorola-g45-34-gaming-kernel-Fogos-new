@@ -26,8 +26,8 @@
 
 ## ✨ What is VirgoYT Gaming Kernel?
 
-The **VirgoYT Gaming Kernel (FogOS)** is a hand-tuned, performance-first Android kernel built specifically for **Motorola G45 / G34** gamers.  
-Every knob is turned to maximum for **BGMI · PUBG Mobile · Free Fire** — lowest ping, highest FPS, zero throttle.
+The **VirgoYT Gaming Kernel (FogOS)** is a device-focused Android kernel for **Motorola G45 / G34** gaming workloads.
+It prioritizes responsive scheduling and bounded latency hints while preserving the stock thermal, charging, vendor-module, and verified-boot contracts.
 
 > *"I don't chase. I attract. I WIN."* — Prince, VirgoYT707
 
@@ -37,16 +37,16 @@ Every knob is turned to maximum for **BGMI · PUBG Mobile · Free Fire** — low
 
 | Category | What It Does |
 |----------|-------------|
-| 🔥 **CPU** | Locked to max freq (performance governor) · all 8 cores at peak always |
-| ⚡ **GPU** | Max clock locked · power-collapse disabled · zero idle throttle |
-| 🌡️ **Thermal** | All throttle limits bypassed · trip points raised to 125°C |
-| 🎮 **BGMI/PUBG** | Game process pinned to big cores · SCHED_FIFO RT priority |
-| 🎯 **Aim/Touch** | Max touch sampling · IRQ pinned to CPU6-7 · zero input latency |
-| 📡 **Network** | TCP BBR · WLAN power-save OFF · DSCP game priority marking |
+| 🔥 **CPU** | Uses the device’s supported cpufreq and scheduler policies; no forced overclock |
+| ⚡ **GPU** | Preserves the vendor GPU/devfreq and thermal control paths |
+| 🌡️ **Thermal** | Stock Android/Motorola thermal protection remains active |
+| 🎮 **BGMI/PUBG** | Bounded FogOS latency profile; no unsupported RT priority or core pinning |
+| 🎯 **Aim/Touch** | Preserves vendor touch and input drivers; latency must be measured on-device |
+| 📡 **Network** | BBRplus with `fq` pacing for TCP; it does not change radio limits or guarantee ping |
 | 🧠 **Memory** | ZRAM ZSTD · swappiness=20 · 48MB extra free for LMK headroom |
 | 💾 **I/O** | BFQ scheduler · low_latency=1 · slice_idle=0 |
-| ⚡ **Charging** | 33W turbo fast charge enabled on PMIC |
-| 🖥️ **Display** | 120 FPS frame scheduling · RT SurfaceFlinger priority |
+| ⚡ **Charging** | Preserves the vendor charging and battery-safety policy |
+| 🖥️ **Display** | Preserves vendor display and SurfaceFlinger scheduling contracts |
 | 🔇 **Logging** | Kernel debug overhead removed · tracing disabled |
 | 🔒 **Security** | SELinux enforcing · banking apps work · bootloader compatible |
 
@@ -218,21 +218,19 @@ If apps still fail:
 
 ## 📊 Expected Results
 
-| Metric | Before | After FogOS |
-|--------|--------|-------------|
-| BGMI FPS | 40–60 | 60–90+ |
-| Touch Latency | ~15ms | ~4ms |
-| Ping (BGMI) | 30–60ms | 15–35ms |
-| Boot Time | ~45s | ~35s |
-| Stutter | Frequent | Near Zero |
-| Throttle | After 2min | Never |
+| Metric | FogOS position |
+|--------|----------------|
+| BGMI FPS | Must be measured on the exact ROM, thermal state, and graphics settings |
+| Touch latency | Depends on the vendor touch controller, display mode, and runtime load |
+| Ping/download speed | Depends on the carrier/Wi-Fi link, radio conditions, server, and TCP path |
+| Boot time | Must be measured with boot tracing on the exact build |
+| Stutter | No zero-drop guarantee; profile changes are bounded to preserve stability |
+| Thermal behavior | Stock thermal protection remains active; sustained performance is device-dependent |
 
 ---
 
-## 📖 Overclocking Guide
-
-The kernel locks your CPU at **100% of its hardware ceiling** (2.2–2.3 GHz on SM6375).  
-To push beyond (2.5 GHz true OC), read **[fogos_oc.md](fogos_oc.md)** — full DTS OPP table guide included.
+## 📖 Frequency and thermal policy
+The kernel does not add an unsupported overclock or bypass thermal protection. CPU and GPU frequencies remain bounded by the Motorola/Qualcomm OPP tables and the active Android thermal policy. Any performance comparison should use repeatable BGMI gameplay runs and record FPS, frame-time variance, skin temperature, battery drain, and throttling state.
 
 ---
 
@@ -263,7 +261,7 @@ To push beyond (2.5 GHz true OC), read **[fogos_oc.md](fogos_oc.md)** — full D
 **Branding:** VirgoYT Gaming Kernel · FogOS Edition  
 
 > This kernel is open-source under the GNU General Public License v2.  
-> Source changes are documented in [CHANGES.md](CHANGES.md).
+> Project attribution and preserved upstream notices are documented in [CREDITS.md](CREDITS.md).
 
 ---
 
