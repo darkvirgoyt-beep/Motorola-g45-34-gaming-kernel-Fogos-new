@@ -167,6 +167,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             olddefconfig
 
+          python3 scripts/validate_fogos_release_config.py "${OUT}/.config"
           echo "✅ Kernel configured"
           echo "DEFCONFIG=${DEFCONFIG}" >> $GITHUB_ENV
 
