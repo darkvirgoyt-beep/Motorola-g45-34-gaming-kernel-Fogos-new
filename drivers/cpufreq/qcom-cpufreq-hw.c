@@ -440,7 +440,7 @@ static int qcom_cpufreq_hw_read_lut(struct platform_device *pdev,
 	u32 data, src, lval, i, core_count, prev_cc, prev_freq, freq, volt;
 	unsigned long cpu;
 
-	c->table = devm_kcalloc(dev, lut_max_entries + 1,
+	c->table = devm_kcalloc(dev, lut_max_entries + 4,
 				sizeof(*c->table), GFP_KERNEL);
 	if (!c->table)
 		return -ENOMEM;
@@ -485,6 +485,35 @@ static int qcom_cpufreq_hw_read_lut(struct platform_device *pdev,
 
 		if (cpu_dev)
 			dev_pm_opp_add(cpu_dev, freq * 1000, volt);
+	}
+
+	/*
+	 * VirgoX Heavy Overclock & Stable Power Delivery:
+	 * Gold cluster (max_cores == 2): 2592 MHz (2.60 GHz) @ 1.08V
+	 * Silver cluster (max_cores == 6): 2208 MHz (2.20 GHz) @ 1.02V
+	 */
+	if (max_cores == 2) {
+		u32 oc_freq = (1U << 30) | ((max_cores & 0x7) << 16) | (135 & 0xFF);
+		u32 oc_volt = 1080 & 0xFFF;
+		writel_relaxed(oc_freq, c->base + offsets[REG_FREQ_LUT] + i * lut_row_size);
+		writel_relaxed(oc_volt, c->base + offsets[REG_VOLT_LUT] + i * lut_row_size);
+		c->table[i].frequency = 2592000;
+		c->table[i].flags = 0;
+		if (cpu_dev)
+			dev_pm_opp_add(cpu_dev, 2592000UL * 1000UL, 1080000);
+		pr_info("qcom-cpufreq-hw: VirgoX Gold cluster Overclock registered: 2.60 GHz (2592 MHz) @ 1.08V (LUT index %u)\n", i);
+		i++;
+	} else if (max_cores == 6) {
+		u32 oc_freq = (1U << 30) | ((max_cores & 0x7) << 16) | (115 & 0xFF);
+		u32 oc_volt = 1020 & 0xFFF;
+		writel_relaxed(oc_freq, c->base + offsets[REG_FREQ_LUT] + i * lut_row_size);
+		writel_relaxed(oc_volt, c->base + offsets[REG_VOLT_LUT] + i * lut_row_size);
+		c->table[i].frequency = 2208000;
+		c->table[i].flags = 0;
+		if (cpu_dev)
+			dev_pm_opp_add(cpu_dev, 2208000UL * 1000UL, 1020000);
+		pr_info("qcom-cpufreq-hw: VirgoX Silver cluster Overclock registered: 2.20 GHz (2208 MHz) @ 1.02V (LUT index %u)\n", i);
+		i++;
 	}
 
 	c->table[i].frequency = CPUFREQ_TABLE_END;
