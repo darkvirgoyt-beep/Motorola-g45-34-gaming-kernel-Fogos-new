@@ -168,7 +168,7 @@
 	chipone_tddi@0 {
 		compatible = "chipone-tddi";
 		reg = <0x0>;
-		spi-max-frequency = <8000000>;
+		spi-max-frequency = <16000000>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <22 0x2001>;
 		spi-cpha;
@@ -185,6 +185,9 @@
 		panel = <&dsi_icnl9916c_hd_plus_120_video>;
 		mmi,status = "/chosen","mmi,panel_name","contains","icnl9916c";
 		chipone,supported_gesture_type = <0x06>;
+		chipone,report-rate = <1000>;
+		chipone,sample-rate = <1000>;
+		chipone,touch-filter-level = <0>;
 		chipone,rst-pull-flag;
 		chipone,touch-charger-detect-enable;
 		chipone,touch-charger-detect-type = "notify";
@@ -197,7 +200,7 @@
 	ilitek@1 {
 		compatible = "tchip,ilitek";
 		reg = <0x1>;
-		spi-max-frequency = <8000000>;
+		spi-max-frequency = <16000000>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <22 0x2001>;
 		panel = <&dsi_ili9883c_hd_plus_120_video>;
@@ -209,6 +212,10 @@
 		pinctrl-1 = <&ts_int_suspend_high>;
 		ilitek,report_gesture_key;
 		ilitek,supported_gesture_type = <0x06>;
+		ilitek,report-rate = <1000>;
+		ilitek,sample-rate = <1000>;
+		touch,sample-rate = <1000>;
+		ilitek,touch-filter-level = <0>;
 		status = "ok";
 	};
 };
