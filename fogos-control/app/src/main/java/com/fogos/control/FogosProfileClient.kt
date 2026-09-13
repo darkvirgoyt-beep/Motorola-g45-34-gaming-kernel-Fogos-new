@@ -6,12 +6,11 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 
-/** Real client for the FogOS kernel endpoint through the installed Magisk bridge. */
+/** Direct non-root client for the FogOS kernel profile endpoint. */
 class FogosProfileClient(
     private val device: File = File(DEVICE_PATH),
 ) {
     fun readProfile(): String? {
-        runRoot("get")?.let { return normalize(it) }
         return try {
             FileInputStream(device).bufferedReader(StandardCharsets.UTF_8).use { reader ->
                 normalize(reader.readText())
@@ -24,10 +23,6 @@ class FogosProfileClient(
     }
 
     fun writeProfile(profile: Profile): WriteResult {
-        if (runRoot("set", profile.id) != null) {
-            return if (readProfile() == profile.id) WriteResult.Success(profile)
-            else WriteResult.Failure("The kernel did not confirm profile ${profile.id}.")
-        }
         return try {
             FileOutputStream(device).use { output ->
                 output.write((profile.id + "\n").toByteArray(StandardCharsets.UTF_8))
@@ -40,21 +35,9 @@ class FogosProfileClient(
                 WriteResult.Failure("The kernel did not confirm profile ${profile.id}.")
             }
         } catch (_: IOException) {
-            WriteResult.Failure("Install the FogOS Control Bridge Magisk module and approve the app's root request.")
+            WriteResult.Failure("FogOS control is unavailable. Check the app's device-node permissions and SELinux policy.")
         } catch (_: SecurityException) {
             WriteResult.Failure("Android denied access to /dev/fogos_profile.")
-        }
-    }
-
-    private fun runRoot(operation: String, value: String? = null): String? {
-        return try {
-            val command = mutableListOf("su", "-c", ACTION_PATH, operation)
-            if (value != null) command += value
-            val process = ProcessBuilder(command).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader(StandardCharsets.UTF_8).readText()
-            if (process.waitFor() == 0) output else null
-        } catch (_: Exception) {
-            null
         }
     }
 
@@ -65,7 +48,6 @@ class FogosProfileClient(
 
     companion object {
         const val DEVICE_PATH = "/dev/fogos_profile"
-        const val ACTION_PATH = "/data/adb/modules/fogos-control/action.sh"
     }
 }
 
