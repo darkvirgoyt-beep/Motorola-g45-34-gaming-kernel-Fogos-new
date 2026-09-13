@@ -1,0 +1,7 @@
+id=fogos-control
+name=FogOS Control Bridge
+version=1.0.0
+versionCode=1
+author=FogOS
+description=Boots the FogOS profile endpoint into performance mode and exposes a safe root bridge for the companion app
+license=GPL-2.0

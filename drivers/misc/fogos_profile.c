@@ -34,7 +34,7 @@
 #define FOGOS_EXTREME_GAMING_LATENCY_US 500
 
 static DEFINE_MUTEX(fogos_profile_lock);
-static char fogos_active_profile[FOGOS_PROFILE_MAX] = "balanced";
+static char fogos_active_profile[FOGOS_PROFILE_MAX] = "performance";
 static struct pm_qos_request fogos_latency_qos;
 
 static bool fogos_profile_valid(const char *profile)
@@ -136,11 +136,14 @@ static int __init fogos_profile_init(void)
 {
 	int error;
 
+	/* Performance is the shipped default; thermal mitigation remains active. */
+	fogos_apply_latency_qos(fogos_active_profile);
+
 	error = misc_register(&fogos_profile_miscdev);
 	if (error)
 		pr_err("fogos_profile: unable to register device: %d\n", error);
 	else
-		pr_info("fogos_profile: /dev/fogos_profile ready; balanced profile active\n");
+			pr_info("fogos_profile: /dev/fogos_profile ready; performance profile active\n");
 	return error;
 }
 

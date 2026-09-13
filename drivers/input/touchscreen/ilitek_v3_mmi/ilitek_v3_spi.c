@@ -561,11 +561,20 @@ int ili_core_spi_setup(int num)
 		TP_SPI_CLK_14M,
 		TP_SPI_CLK_15M
 	};
+	u32 dt_freq = 0;
+
+	/* Keep the board's SPI ceiling across probe, reset and recovery. */
+	if (ilits && ilits->spi && ilits->spi->dev.of_node)
+		of_property_read_u32(ilits->spi->dev.of_node,
+				     "spi-max-frequency", &dt_freq);
 
 	if (num >= ARRAY_SIZE(freq)) {
 		ILI_ERR("Invaild clk freq, set default clk freq\n");
 		num = 7;
 	}
+
+	if (dt_freq)
+		freq[num] = dt_freq;
 
 	ILI_INFO("spi clock = %d\n", freq[num]);
 
