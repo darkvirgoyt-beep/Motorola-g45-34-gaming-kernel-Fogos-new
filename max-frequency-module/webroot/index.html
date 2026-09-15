@@ -1,0 +1,12 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>FogOS Max Lock</title>
+<style>body{font-family:sans-serif;background:#0b100d;color:#eaffdf;padding:20px}h1{color:#a8ff18}button{padding:14px;margin:6px;border:0;border-radius:10px;font-weight:bold}#on{background:#a8ff18}#off{background:#444;color:white}pre{background:#121b15;padding:12px;border-radius:10px;white-space:pre-wrap}small{color:#aab8aa}</style></head>
+<body><h1>FogOS Max Frequency</h1><p><small>Reversible CPU/GPU policy controller. Thermal protection remains enabled.</small></p>
+<button id="on">LOCK MAX</button><button id="off">RESTORE</button><button id="refresh">REFRESH</button><pre id="status">Loading...</pre><p id="msg"></p>
+<script type="module">
+import { exec, toast } from 'kernelsu';
+const cmd='/data/adb/modules/fogos-max-frequency/boost.sh';
+const out=document.getElementById('status'), msg=document.getElementById('msg');
+async function run(action){const r=await exec(`sh ${cmd} ${action}`); out.textContent=r.stdout||r.stderr||`errno=${r.errno}`; if(r.errno) toast(`Command failed: ${r.errno}`); else msg.textContent=action==='start'?'MAX LOCK ACTIVE':'PREVIOUS POLICY RESTORED';}
+document.getElementById('on').onclick=()=>run('start'); document.getElementById('off').onclick=()=>run('stop'); document.getElementById('refresh').onclick=()=>run('status'); run('status');
+</script></body></html>

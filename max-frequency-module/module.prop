@@ -1,0 +1,7 @@
+id=fogos-max-frequency
+name=FogOS Max Frequency Controller
+version=1.2.0
+versionCode=3
+author=FogOS
+description=Reversible CPU/GPU maximum-frequency controller; preserves thermal protection
+license=GPL-2.0
