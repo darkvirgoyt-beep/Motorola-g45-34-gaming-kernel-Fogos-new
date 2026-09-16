@@ -65,11 +65,12 @@ setup() {
   ! grep -Eq 'thermal-governor = "user_space"|temperature = <125000>|sdm-skin-therm-usr|chg-skin-therm-usr' "$overlay"
 }
 
-@test "PulseControl remains a direct non-root profile client" {
+@test "PulseControl supports direct and Magisk-root profile clients" {
   local app_src="${REPO_ROOT}/fogos-control/app/src/main"
 
   grep -R -F '/dev/fogos_profile' "$app_src"
-  ! grep -RE '(Runtime\.getRuntime|ProcessBuilder|/system/bin/sh|[[:space:]]su[[:space:]])' "$app_src"
+  grep -R -F 'ProcessBuilder("su", "-c"' "$app_src"
+  grep -R -F '/data/adb/modules/fogos-control/action.sh' "$app_src"
 }
 
 @test "FogOS profiles use only a bounded kernel latency QoS hint" {

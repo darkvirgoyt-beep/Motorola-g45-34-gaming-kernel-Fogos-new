@@ -384,13 +384,18 @@ class MainActivity : Activity() {
 
     private fun refreshProfile() {
         executor.execute {
+            val state = client.connectionState()
             val profileId = client.readProfile()
             val profile = Profile.entries.firstOrNull { it.id == profileId }
             runOnUiThread {
                 if (profile == null) {
                     connection.text = "  !  KERNEL LINK UNAVAILABLE"
                     activeProfile.text = "OFFLINE"
-                    statusDetail.text = "Flash CONFIG_FOGOS_PROFILE=y and merge the FogOS SELinux policy"
+                    statusDetail.text = when (state) {
+                        ConnectionState.KERNEL_ONLY -> "Kernel detected; install FogOS Control Bridge and approve root"
+                        ConnectionState.MODULE_ONLY -> "Bridge detected; reboot with the FogOS kernel"
+                        else -> "Kernel endpoint unavailable; flash the compatible FogOS boot image"
+                    }
                     return@runOnUiThread
                 }
                 selectedProfile = profile
