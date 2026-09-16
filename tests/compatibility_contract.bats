@@ -84,7 +84,7 @@ setup() {
 }
 
 @test "FogOS gaming image includes the Holi fingerprint driver" {
-  grep -F 'CONFIG_INPUT_RBS_FOD_MMI=y' "${REPO_ROOT}/arch/arm64/configs/vendor/fogos_gaming.config"
+  grep -F 'CONFIG_INPUT_MISC_FPC1020=y' "${REPO_ROOT}/arch/arm64/configs/vendor/fogos_gaming.config"
 }
 
 @test "release source contains no root runtime payload or legacy tuning scripts" {
