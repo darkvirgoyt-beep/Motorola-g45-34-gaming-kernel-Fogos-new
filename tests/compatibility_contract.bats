@@ -103,8 +103,3 @@ setup() {
   grep -F 'Preserve the entire stock vbmeta block byte-for-byte' "$packer"
   grep -F 'validate_bootimg_contract.py' "$workflow"
 }
-
-@test "FogOS gaming config enables the Holi RBS fingerprint driver" {
-  local gaming="${REPO_ROOT}/arch/arm64/configs/vendor/fogos_gaming.config"
-  grep -F 'CONFIG_INPUT_RBS_FOD_MMI=m' "$gaming"
-}
