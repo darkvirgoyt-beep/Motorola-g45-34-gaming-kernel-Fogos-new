@@ -106,5 +106,5 @@ setup() {
 
 @test "FogOS gaming config enables the Holi RBS fingerprint driver" {
   local gaming="${REPO_ROOT}/arch/arm64/configs/vendor/fogos_gaming.config"
-  grep -F 'CONFIG_INPUT_RBS_FOD_MMI=m' "$gaming"
+  grep -F 'CONFIG_INPUT_RBS_FOD_MMI=y' "$gaming"
 }
