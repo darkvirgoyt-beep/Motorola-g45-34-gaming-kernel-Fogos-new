@@ -83,6 +83,10 @@ setup() {
   ! grep -Eq 'scaling_(min|max)_freq|force_clk_on|force_no_nap|trip_point|/sys/class/thermal|sched_boost|sched_util_clamp' "$profile_src"
 }
 
+@test "FogOS gaming image includes the Holi fingerprint driver" {
+  grep -F 'CONFIG_INPUT_RBS_FOD_MMI=y' "${REPO_ROOT}/arch/arm64/configs/vendor/fogos_gaming.config"
+}
+
 @test "release source contains no root runtime payload or legacy tuning scripts" {
   local packer="${REPO_ROOT}/build_fogos.sh"
 
