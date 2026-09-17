@@ -140,7 +140,7 @@
 	mdm-core0-step {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens1 6>;
 		trips {
 			mdmss0_trip0: mdmss0-trip0 {
@@ -162,6 +162,11 @@
 			};
 		};
 
+		cooling-maps {
+			mdmss0_cdev0 {
+				trip = <&mdmss0_trip0>;
+				cooling-device = <&modem_tj 1 1>;
+			};
 
 			mdmss0_cdev1 {
 				trip = <&mdmss0_trip1>;
@@ -178,7 +183,7 @@
 	mdm-core1-step {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens1 7>;
 		trips {
 			mdmss1_trip0: mdmss1-trip0 {
@@ -200,6 +205,11 @@
 			};
 		};
 
+		cooling-maps {
+			mdmss1_cdev0 {
+				trip = <&mdmss1_trip0>;
+				cooling-device = <&modem_tj 1 1>;
+			};
 
 			mdmss1_cdev1 {
 				trip = <&mdmss1_trip1>;
@@ -216,7 +226,7 @@
 	mdm-vec-step {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens1 8>;
 		trips {
 			mdmss2_trip0: mdmss2-trip0 {
@@ -238,6 +248,11 @@
 			};
 		};
 
+		cooling-maps {
+			mdmss2_cdev0 {
+				trip = <&mdmss2_trip0>;
+				cooling-device = <&modem_tj 1 1>;
+			};
 
 			mdmss2_cdev1 {
 				trip = <&mdmss2_trip1>;
@@ -254,7 +269,7 @@
 	mdm-scl-step {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens1 9>;
 		trips {
 			mdmss3_trip0: mdmss3-trip0 {
@@ -276,6 +291,11 @@
 			};
 		};
 
+		cooling-maps {
+			mdmss3_cdev0 {
+				trip = <&mdmss3_trip0>;
+				cooling-device = <&modem_tj 1 1>;
+			};
 
 			mdmss3_cdev1 {
 				trip = <&mdmss3_trip1>;
@@ -812,7 +832,7 @@
 	cpu-0-0-step {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens0 1>;
 		trips {
 			cpu00_config: cpu00-config {
@@ -822,13 +842,18 @@
 			};
 		};
 
+		cooling-maps {
+			cpu00_cdev {
+				trip = <&cpu00_config>;
+				cooling-device = <&cpu0_isolate 1 1>;
+			};
 		};
 	};
 
 	cpu-0-1-step {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens0 2>;
 		trips {
 			cpu01_config: cpu01-config {
@@ -838,13 +863,18 @@
 			};
 		};
 
+		cooling-maps {
+			cpu01_cdev {
+				trip = <&cpu01_config>;
+				cooling-device = <&cpu1_isolate 1 1>;
+			};
 		};
 	};
 
 	cpu-0-2-step {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens0 3>;
 		trips {
 			cpu02_config: cpu02-config {
@@ -854,6 +884,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu02_cdev {
+				trip = <&cpu02_config>;
+				cooling-device = <&cpu2_isolate 1 1>;
+			};
 		};
 	};
 
@@ -861,7 +896,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 4>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		trips {
 			cpu03_config: cpu03-config {
 				temperature = <110000>;
@@ -870,6 +905,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu03_cdev {
+				trip = <&cpu03_config>;
+				cooling-device = <&cpu3_isolate 1 1>;
+			};
 		};
 	};
 
@@ -877,7 +917,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 5>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		trips {
 			cpu04_config: cpu04-config {
 				temperature = <110000>;
@@ -886,6 +926,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu04_cdev {
+				trip = <&cpu04_config>;
+				cooling-device = <&cpu4_isolate 1 1>;
+			};
 		};
 	};
 
@@ -893,7 +938,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 6>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		trips {
 			cpu05_config: cpu05-config {
 				temperature = <110000>;
@@ -902,6 +947,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu05_cdev {
+				trip = <&cpu05_config>;
+				cooling-device = <&cpu5_isolate 1 1>;
+			};
 		};
 	};
 
@@ -909,7 +959,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 9>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		trips {
 			cpu10_config: cpu10-config {
 				temperature = <110000>;
@@ -918,6 +968,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu10_cdev {
+				trip = <&cpu10_config>;
+				cooling-device = <&cpu6_isolate 1 1>;
+			};
 
 			cpu10_cdev1 {
 				trip = <&cpu10_config>;
@@ -931,7 +986,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 10>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		trips {
 			cpu11_config: cpu11-config {
 				temperature = <110000>;
@@ -940,6 +995,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu11_cdev {
+				trip = <&cpu11_config>;
+				cooling-device = <&cpu6_isolate 1 1>;
+			};
 
 			cpu11_cdev1 {
 				trip = <&cpu11_config>;
@@ -953,7 +1013,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 11>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		trips {
 			cpu12_config: cpu12-config {
 				temperature = <110000>;
@@ -962,6 +1022,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu12_cdev {
+				trip = <&cpu12_config>;
+				cooling-device = <&cpu7_isolate 1 1>;
+			};
 
 			cpu12_cdev1 {
 				trip = <&cpu12_config>;
@@ -975,7 +1040,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 12>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		trips {
 			cpu13_config: cpu13-config {
 				temperature = <110000>;
@@ -984,6 +1049,11 @@
 			};
 		};
 
+		cooling-maps {
+			cpu13_cdev {
+				trip = <&cpu13_config>;
+				cooling-device = <&cpu7_isolate 1 1>;
+			};
 
 			cpu13_cdev1 {
 				trip = <&cpu13_config>;
@@ -996,7 +1066,7 @@
 	gpuss-max-step {
 		polling-delay-passive = <10>;
 		polling-delay = <100>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 		thermal-sensors = <&tsens0 13>, <&tsens0 14>;
 		sensor-aggregation = <AGGREGATE_MAX_VALUE>;
 		trips {
@@ -1007,6 +1077,12 @@
 			};
 		};
 
+		cooling-maps {
+			gpu_cdev {
+				trip = <&gpuss_config>;
+				cooling-device = <&msm_gpu THERMAL_NO_LIMIT
+							THERMAL_NO_LIMIT>;
+			};
 		};
 	};
 
@@ -1014,7 +1090,7 @@
 		polling-delay-passive = <10>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens1 4>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 
 		trips {
 			q6_hvx_trip0: q6-hvx-trip0 {
@@ -1036,6 +1112,12 @@
 			};
 		};
 
+		cooling-maps {
+			q6-hvx-cdev0 {
+				trip = <&q6_hvx_trip0>;
+				cooling-device = <&cdsp_sw THERMAL_NO_LIMIT
+							THERMAL_NO_LIMIT>;
+			};
 
 			q6-hvx-cxip-cdev {
 				trip = <&q6_hvx_cxip>;
@@ -1065,7 +1147,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens0 16>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 
 		trips {
 			zeroc_0_trip: active-config0 {
@@ -1075,6 +1157,11 @@
 			};
 		};
 
+		cooling-maps {
+			rpm_smd_cdev {
+				trip = <&zeroc_0_trip>;
+				cooling-device = <&rpm_smd_cdev 2 2>;
+			};
 
 			cx_vdd_cdev {
 				trip = <&zeroc_0_trip>;
@@ -1107,7 +1194,7 @@
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&tsens1 16>;
-		thermal-governor = "user_space";
+		thermal-governor = "step_wise";
 
 		trips {
 			zeroc_1_trip: active-config0 {
@@ -1117,6 +1204,11 @@
 			};
 		};
 
+		cooling-maps {
+			rpm_smd_cdev {
+				trip = <&zeroc_1_trip>;
+				cooling-device = <&rpm_smd_cdev 2 2>;
+			};
 
 			cx_vdd_cdev {
 				trip = <&zeroc_1_trip>;
