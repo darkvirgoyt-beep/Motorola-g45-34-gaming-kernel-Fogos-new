@@ -39,13 +39,13 @@ msm_gpu: qcom,kgsl-3d0@5900000 {
 		nvmem-cells = <&gpu_speed_bin>, <&gpu_gaming_bin>;
 		nvmem-cell-names = "speed_bin", "gaming_bin";
 
-		qcom,initial-pwrlevel = <4>;
+		qcom,initial-pwrlevel = <0>;
 		qcom,gpu-quirk-secvid-set-once;
 		qcom,min-access-length = <32>;
 		qcom,ubwc-mode = <2>;
 
 		/* Enable context aware freq. scaling */
-		qcom,enable-ca-jump;
+		/* qcom,enable-ca-jump; */
 
 		/* Context aware jump busy penalty in us */
 		qcom,ca-busy-penalty = <12000>;
@@ -112,8 +112,10 @@ msm_gpu: qcom,kgsl-3d0@5900000 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				qcom,speed-bin = <0>;
-				qcom,ca-target-pwrlevel = <6>;
-				qcom,initial-pwrlevel = <7>;
+				qcom,ca-target-pwrlevel = <0>;
+				qcom,min-pwrlevel = <0>;
+				qcom,max-pwrlevel = <0>;
+				qcom,initial-pwrlevel = <0>;
 
 				/* SUPER_TURBO - 1050 MHz HEAVY OC */
 				qcom,gpu-pwrlevel@0 {
@@ -214,7 +216,7 @@ msm_gpu: qcom,kgsl-3d0@5900000 {
 				#size-cells = <0>;
 				qcom,speed-bin = <138>;
 				qcom,ca-target-pwrlevel = <3>;
-				qcom,initial-pwrlevel = <4>;
+				qcom,initial-pwrlevel = <0>;
 
 				/* NOM_L1 */
 				qcom,gpu-pwrlevel@0 {

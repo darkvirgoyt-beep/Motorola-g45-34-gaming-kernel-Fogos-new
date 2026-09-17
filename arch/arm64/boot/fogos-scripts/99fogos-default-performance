@@ -1,0 +1,4 @@
+#!/system/bin/sh
+# Set performance profile on boot
+sleep 5
+echo "performance" > /dev/fogos_profile 2>/dev/null

@@ -161,14 +161,15 @@
 
 &qupv3_se0_spi {
 	status = "ok";
+	qcom,spi-clk-always-on;
 
 	pinctrl-0 = <&qupv3_se0_spi_active &qupv3_se0_spi_cs_active>;
-	pinctrl-1 = <&qupv3_se0_spi_sleep &qupv3_se0_spi_cs_sleep>;
+	pinctrl-names = "default";
 
 	chipone_tddi@0 {
 		compatible = "chipone-tddi";
 		reg = <0x0>;
-		spi-max-frequency = <16000000>;
+		spi-max-frequency = <50000000>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <22 0x2001>;
 		spi-cpha;
@@ -179,36 +180,43 @@
 		chipone,y-res = <6400>;
 		chipone,def-build-id = <0x0101>;
 		chipone,def-config-id = <0x0001>;
-		pinctrl-names = "pmx_ts_int_active","pmx_ts_int_suspend_high";
-		pinctrl-3 = <&ts_active>;
-		pinctrl-4 = <&ts_int_suspend_high>;
+		pinctrl-names = "pmx_ts_int_active";
+		pinctrl-0 = <&ts_active>;
 		panel = <&dsi_icnl9916c_hd_plus_120_video>;
 		mmi,status = "/chosen","mmi,panel_name","contains","icnl9916c";
 		chipone,supported_gesture_type = <0x06>;
+		chipone,gaming-mode;
+		chipone,report-rate = <240>;
+		chipone,noise-filter-disable;
 		chipone,rst-pull-flag;
-		chipone,touch-charger-detect-enable;
-		chipone,touch-charger-detect-type = "notify";
-		chipone,touch-charger-detect-psy-name = "charger";
-		chipone,touch-charger-detect-psp = "POWER_SUPPLY_PROP_ONLINE";
-		chipone,touch-charger-detect-psp-poll-interval = <1000>;
-		chipone,gesture-wait-pm;
+		/* chipone,touch-charger-detect-enable; */
+		/* chipone,touch-charger-detect-type = "notify"; */
+		/* chipone,touch-charger-detect-psy-name = "charger"; */
+		/* chipone,touch-charger-detect-psp = "POWER_SUPPLY_PROP_ONLINE"; */
+		/* chipone,touch-charger-detect-psp-poll-interval = <500>; */
+		/* chipone,gesture-wait-pm; */
 		status = "ok";
 	};
+
 	ilitek@1 {
 		compatible = "tchip,ilitek";
 		reg = <0x1>;
-		spi-max-frequency = <16000000>;
+		spi-max-frequency = <50000000>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <22 0x2001>;
+		spi-cpha;
+		spi-cpol;
 		panel = <&dsi_ili9883c_hd_plus_120_video>;
 		mmi,status = "/chosen","mmi,panel_name","contains","ili9883c";
 		touch,reset-gpio = <&tlmm 21 0x00>;
 		touch,irq-gpio = <&tlmm 22 0x2001>;
-		pinctrl-names = "pmx_ts_int_active","pmx_ts_int_suspend_high";
+		pinctrl-names = "pmx_ts_int_active";
 		pinctrl-0 = <&ts_active>;
-		pinctrl-1 = <&ts_int_suspend_high>;
 		ilitek,report_gesture_key;
 		ilitek,supported_gesture_type = <0x06>;
+		ilitek,gaming-mode;
+		ilitek,report-rate = <240>;
+		ilitek,noise-filter-disable;
 		status = "ok";
 	};
 };

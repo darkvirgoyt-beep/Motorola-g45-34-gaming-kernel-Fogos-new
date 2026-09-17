@@ -27,11 +27,11 @@
 		qcom,mdss-pan-physical-height-dimension = <151>;
 
 		qcom,mdss-dsi-cabc-mv-command = [15 00 00 00 00 00 02 55 03];
-		qcom,mdss-dsi-cabc-mv-command-state =  "dsi_hs_mode";
+		/* qcom,mdss-dsi-cabc-mv-command-state =  "dsi_hs_mode";
 		qcom,mdss-dsi-cabc-ui-command = [15 00 00 00 00 00 02 55 02];
-		qcom,mdss-dsi-cabc-ui-command-state =  "dsi_hs_mode";
+		/* qcom,mdss-dsi-cabc-ui-command-state =  "dsi_hs_mode";
 		qcom,mdss-dsi-cabc-dis-command = [15 01 00 00 00 00 02 55 00];
-		qcom,mdss-dsi-cabc-dis-command-state =  "dsi_hs_mode";
+		/* qcom,mdss-dsi-cabc-dis-command-state =  "dsi_hs_mode";
 
 		qcom,mdss-dsi-display-timings {
 			timing@0 {
@@ -88,13 +88,13 @@
 				05 01 00 00 46 00 01 11
 				05 01 00 00 00 00 01 29
 				];
-				qcom,mdss-dsi-on-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-on-command-state = "dsi_hs_mode";
 				qcom,mdss-dsi-off-command = [
 					39 01 00 00 05 00 04 FF 98 83 00
 					05 01 00 00 14 00 01 28
 					05 01 00 00 55 00 01 10
 				];
-				qcom,mdss-dsi-off-command-state = "dsi_lp_mode";
+				qcom,mdss-dsi-off-command-state = "dsi_hs_mode";
 			};
 		};
 	};
