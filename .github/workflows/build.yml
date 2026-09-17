@@ -6,7 +6,7 @@ name: FogOS Kernel — Build & Boot Image
 #
 # Developer : Prince · VirgoYT707
 # Device    : Motorola G45 / G34 (SM6375 — Holi Platform)
-# Base      : Linux 5.4.302 · Android 17 (Evolution X)
+# Base      : Linux 5.4.302 · boot image must match the target ROM/vendor stack
 ###############################################################################
 
 on:
@@ -53,6 +53,21 @@ on:
         description: 'Release version tag (e.g. v3, v3.1) — leave blank for auto date'
         required: false
         default: ''
+      target_android:
+        description: 'Android version of the stock boot image used for repacking'
+        required: true
+        default: 'auto'
+        type: choice
+        options:
+          - 'auto'
+          - '12'
+          - '15'
+          - '16'
+          - '17'
+      stock_boot_image:
+        description: 'Repository path to the matching stock boot.img'
+        required: true
+        default: 'stock/boot.img'
 
 env:
   ARCH: arm64
@@ -120,6 +135,46 @@ jobs:
       # ──────────────────────────────────────────────────────────────────────
       - name: 📅 Set Build Date
         run: echo "DATE=$(date +%Y%m%d-%H%M)" >> $GITHUB_ENV
+
+      - name: 🔐 Validate target boot image compatibility
+        env:
+          REQUESTED_ANDROID: ${{ github.event.inputs.target_android || 'auto' }}
+          STOCK_BOOT_IMAGE: ${{ github.event.inputs.stock_boot_image || 'stock/boot.img' }}
+        run: |
+          set -euo pipefail
+          test -s "$STOCK_BOOT_IMAGE" || {
+            echo "❌ Missing stock boot image: $STOCK_BOOT_IMAGE"
+            echo "   Add the exact boot.img from the target ROM before dispatching this workflow."
+            exit 1
+          }
+
+          rm -rf /tmp/fogos-boot-compat
+          python3 scripts/vendor/mkbootimg/unpack_bootimg.py \
+            --boot_img "$STOCK_BOOT_IMAGE" \
+            --out /tmp/fogos-boot-compat \
+            --format mkbootimg > /tmp/fogos-boot-format.txt
+
+          OS_VERSION=$(sed -n 's/.*--os_version \([^ ]*\).*/\1/p' /tmp/fogos-boot-format.txt)
+          HEADER_VERSION=$(sed -n 's/.*--header_version \([^ ]*\).*/\1/p' /tmp/fogos-boot-format.txt)
+          test -n "$OS_VERSION" || { echo "❌ Could not read boot image OS version"; exit 1; }
+          echo "Stock boot image : $STOCK_BOOT_IMAGE"
+          echo "Header version   : $HEADER_VERSION"
+          echo "OS version       : $OS_VERSION"
+
+          if [ "$REQUESTED_ANDROID" != "auto" ]; then
+            case "$OS_VERSION" in
+              "$REQUESTED_ANDROID".*) ;;
+              *)
+                echo "❌ Requested Android $REQUESTED_ANDROID but stock image reports $OS_VERSION"
+                echo "   Re-run with the matching boot.img; do not flash a cross-version image."
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "STOCK_BOOT_IMAGE=$STOCK_BOOT_IMAGE" >> "$GITHUB_ENV"
+          echo "BOOT_OS_VERSION=$OS_VERSION" >> "$GITHUB_ENV"
+          echo "BOOT_HEADER_VERSION=$HEADER_VERSION" >> "$GITHUB_ENV"
 
       # ──────────────────────────────────────────────────────────────────────
       - name: ⚙️ Configure Kernel
@@ -248,7 +303,7 @@ jobs:
 
           echo "📱 Packing boot.img for Motorola G45 (SM6375 / Holi)..."
           bash scripts/create_bootimg.sh \
-            stock/boot.img \
+            "${STOCK_BOOT_IMAGE}" \
             "${KERNEL_PATH}" \
             "release/FogOS-boot-${DATE}.img"
 
@@ -259,10 +314,10 @@ jobs:
       - name: ✅ Validate Motorola preflash contract
         run: |
           # Fail closed unless the release remains a full partition-sized image
-          # with the stock Evolution X AVB metadata preserved and only the
+          # with the selected ROM's AVB metadata preserved and only the
           # SHA-256 hash descriptor refreshed for the new kernel payload.
           python3 scripts/validate_bootimg_contract.py \
-            stock/boot.img \
+            "${STOCK_BOOT_IMAGE}" \
             "release/FogOS-boot-${DATE}.img"
 
       # ──────────────────────────────────────────────────────────────────────
@@ -271,7 +326,7 @@ jobs:
           # Copy kernel into AnyKernel3 directory
           cp "${KERNEL_PATH}" anykernel3/Image 2>/dev/null || true
 
-          ZIP_NAME="FogOS-Gaming-Rootless-A17-Holi-${DATE}"
+          ZIP_NAME="FogOS-Gaming-Rootless-Android-${BOOT_OS_VERSION%%.*}-Holi-${DATE}"
           cd anykernel3
           zip -r9 "../release/${ZIP_NAME}.zip" . --exclude="*.git*"
           cd ..
@@ -350,11 +405,15 @@ jobs:
             |-------|-------|
             | **Developer** | Prince · VirgoYT707 |
             | **Device** | Motorola G45 / G34 (SM6375 / Holi) |
-            | **Android** | 17 · Evolution X 12.0 · Security Patch 2026-08 |
+            | **Android boot target** | ${{ env.BOOT_OS_VERSION }} · header v${{ env.BOOT_HEADER_VERSION }} |
             | **Kernel** | Linux 5.4.302 |
             | **Build** | ${{ env.DATE }} |
 
             ---
+
+            ### Compatibility
+
+            This artifact was repacked from the selected matching stock boot image. Do not flash it over a ROM/vendor stack from another Android version. For Android 12, dispatch this workflow with an Android 12 `boot.img` and set `target_android` to `12`.
 
             ### 📱 Method 1 — Fastboot (Recommended)
 
