@@ -216,6 +216,10 @@ jobs:
           # order.  These changes affect only this build workspace.
           cat > /tmp/fogos-ci-compat.config <<'EOF'
           CONFIG_ENERGY_MODEL=y
+          CONFIG_SUSPEND=y
+          CONFIG_SUSPEND_FREEZER=y
+          CONFIG_PM_SLEEP=y
+          CONFIG_PM_SLEEP_SMP=y
           EOF
           bash scripts/kconfig/merge_config.sh -m -O "${OUT}" \
             "${OUT}/.config" /tmp/fogos-ci-compat.config
