@@ -209,6 +209,28 @@ jobs:
             echo "⚠️ Gaming fragment not found — skipping merge"
           fi
 
+          # CI-only compatibility fixes for this 5.4 tree.  Keep these out of
+          # the kernel source/config fragments: WALT references the energy
+          # model static key, and this tree's proc walker uses the pre-5.4
+          # split_huge_pmd() argument order while the header uses the newer
+          # order.  These changes affect only this build workspace.
+          cat > /tmp/fogos-ci-compat.config <<'EOF'
+          CONFIG_ENERGY_MODEL=y
+          EOF
+          bash scripts/kconfig/merge_config.sh -m -O "${OUT}" \
+            "${OUT}/.config" /tmp/fogos-ci-compat.config
+          python3 - <<'PYEOF'
+          from pathlib import Path
+          path = Path("fs/proc/task_mmu.c")
+          text = path.read_text()
+          old = "split_huge_pmd(vma, addr, pmd);"
+          new = "split_huge_pmd(vma, pmd, addr);"
+          if old not in text:
+              raise SystemExit("expected split_huge_pmd call was not found")
+          path.write_text(text.replace(old, new, 1))
+          print("✅ Applied CI-only proc huge-page API compatibility fix")
+          PYEOF
+
           # The only supported tuning path is the minimal fragment above plus
           # runtime profile changes through /dev/fogos_profile. Legacy static
           # fragments that changed module modes, LOCALVERSION, or KALLSYMS were
